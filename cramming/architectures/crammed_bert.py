@@ -38,7 +38,7 @@ class distillCrammedBertConfig(PretrainedConfig):
         super().__init__(**kwargs)
 
 
-def distil_construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None):
+def distill_construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None):
     """See the config file for details on what is possible."""
     config = distillCrammedBertConfig(OmegaConf.to_container(cfg_arch, resolve=True))
     config.arch["embedding"]["vocab_size"] = vocab_size
@@ -46,14 +46,14 @@ def distil_construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None)
 
     if downstream_classes is None:
         if config.arch["objective_layout"] == "MLM":
-            model = DistilScriptableLMForPreTraining(config)
+            model = DistillScriptableLMForPreTraining(config)
         else:
             raise ValueError(f"Invalid layout {config.arch['objective_layout']} of training objective given.")
     else:
-        model = DistilScriptableLM(config)
+        model = DistillScriptableLM(config)
     return model
 
-class DistilScriptableLM(PreTrainedModel):
+class DistillScriptableLM(PreTrainedModel):
     """Simplified transformer wrapper. (With Distillation)"""
 
     config_class = distillCrammedBertConfig
@@ -101,7 +101,7 @@ class DistilScriptableLM(PreTrainedModel):
         return final_output, intermediate_output
 
 
-class DistilScriptableLMForPreTraining(PreTrainedModel):
+class DistillScriptableLMForPreTraining(PreTrainedModel):
     """Pretraining version with optional prediction head and variant for sparse prediction. (With Distillation)"""
 
     config_class = distillCrammedBertConfig
@@ -110,7 +110,7 @@ class DistilScriptableLMForPreTraining(PreTrainedModel):
         super().__init__(config)
         self.cfg = OmegaConf.create(config.arch)
 
-        self.encoder = ScriptableLM(config)
+        self.encoder = DistillScriptableLM(config)
 
         if not self.cfg.skip_head_transform:
             self.prediction_head = PredictionHeadComponent(self.cfg)
@@ -621,12 +621,12 @@ class ScriptableLMForTokenClassification(PreTrainedModel):
 
 # ###### HF registry here ############### #
 
-AutoConfig.register("crammedBERT", crammedBertConfig)
-AutoModel.register(crammedBertConfig, ScriptableLM)
-AutoModelForMaskedLM.register(crammedBertConfig, ScriptableLMForPreTraining)
-AutoModelForSequenceClassification.register(crammedBertConfig, ScriptableLMForSequenceClassification)
-AutoModelForTokenClassification.register(crammedBertConfig, ScriptableLMForTokenClassification)
+#AutoConfig.register("crammedBERT", crammedBertConfig)
+#AutoModel.register(crammedBertConfig, ScriptableLM)
+#AutoModelForMaskedLM.register(crammedBertConfig, ScriptableLMForPreTraining)
+#AutoModelForSequenceClassification.register(crammedBertConfig, ScriptableLMForSequenceClassification)
+#AutoModelForTokenClassification.register(crammedBertConfig, ScriptableLMForTokenClassification)
 
 AutoConfig.register("distilCrammedBERT", distillCrammedBertConfig)
-AutoModel.register(distillCrammedBertConfig, DistilScriptableLM)
-AutoModelForMaskedLM.register(distillCrammedBertConfig, DistilScriptableLMForPreTraining)
+AutoModel.register(distillCrammedBertConfig, DistillScriptableLM)
+AutoModelForMaskedLM.register(distillCrammedBertConfig, DistillScriptableLMForPreTraining)
