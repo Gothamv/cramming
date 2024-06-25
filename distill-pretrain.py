@@ -198,7 +198,7 @@ def communicate_flags(training_allowed, no_recovery_necessary):
         return training_allowed, no_recovery_necessary
 
 
-@hydra.main(config_path="cramming/config", config_name="cfg_pretrain", version_base="1.1")
+@hydra.main(config_path="cramming/config", config_name="cfg_pretrain-distill", version_base="1.1")
 def launch(cfg):
     cramming.utils.main_launcher(cfg, main_training_process, job_name="pretraining")
 

@@ -55,12 +55,12 @@ def initialize_distill_torch(model, dataset, tokenizer, cfg_train, cfg_impl, ela
     if require_full_engine:
         raise NotImplementedError("DistillTorchEngineFull is not implemented.")
     else:
-        model_engine = DistilTorchEngineMinimal(model, cfg_train, cfg_impl, elapsed_time, setup=setup, seq_length=tokenizer.model_max_length)
+        model_engine = DistillTorchEngineMinimal(model, cfg_train, cfg_impl, elapsed_time, setup=setup, seq_length=tokenizer.model_max_length)
     model_engine.train()  # This is the default engine state. Pretraining scripts may change this.
     return model_engine, model_engine.optimizer, model_engine.scheduler, dataloader
 
 
-class DistilTorchEngineMinimal(torch.nn.Module):
+class DistillTorchEngineMinimal(torch.nn.Module):
     """This class mirrors deepspeed functionality. Not all changes are implemented in this version.
 
     See TorchEngineFull for more modifications.
