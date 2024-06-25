@@ -462,12 +462,27 @@ def _initialize_wandb(setup, cfg):
         run.summary["numGPUs"] = torch.cuda.device_count()
 
 
+# def wandb_log(stats, cfg):
+#     if cfg.wandb.enabled:
+#         if is_main_process():
+#             import wandb
+
+#             wandb.log({k: v[-1] for k, v in stats.items()}, step=stats["step"][-1] if "step" in stats else None)
+
 def wandb_log(stats, cfg):
     if cfg.wandb.enabled:
         if is_main_process():
             import wandb
+            log_dict = {}
+            
+            for k, v in stats.items():
+                if k in ['total_loss', 'mlm_loss', 'distillation_loss']:
+                    log_dict[k] = v[-1]  # Log the most recent value
+                else:
+                    log_dict[k] = v[-1] if isinstance(v, list) else v
 
-            wandb.log({k: v[-1] for k, v in stats.items()}, step=stats["step"][-1] if "step" in stats else None)
+            wandb.log(log_dict, step=stats["step"][-1] if "step" in stats else None)
+
 
 
 def flatten(d, parent_key="", sep="_"):

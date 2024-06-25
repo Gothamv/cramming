@@ -19,7 +19,7 @@ hydra:
   job:
     chdir: True
 
-seed: # Optional: Set initial seed
+seed: 1 # Optional
 name: default # A name for this run [will be used for the summary table and outputs folder]
 
 # Total and central computation budget in hours:

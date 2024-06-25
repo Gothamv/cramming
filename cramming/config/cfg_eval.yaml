@@ -19,7 +19,7 @@ hydra:
   job:
     chdir: True
 
-seed: # Optional: Set initial seed
+seed: 1 # Optional: Set initial seed
 
 # A name for this run [will draw the checkpoint from runs with this name
 # and use this name for the summary table and outputs folder]

@@ -5,7 +5,7 @@ The interface is made to be compliant with the deepspeed interface.
 """
 import torch
 
-from .torch_default import initialize_torch
+from .torch_default import initialize_torch, initialize_distill_torch
 from .deepspeed_integration import initialize_deepspeed
 
 _default_setup = dict(device=torch.device("cpu"), dtype=torch.float)
@@ -16,5 +16,7 @@ def load_backend(model, dataset, tokenizer, cfg_train, cfg_impl, elapsed_time=0.
         return initialize_torch(model, dataset, tokenizer, cfg_train, cfg_impl, elapsed_time, setup=setup)
     elif cfg_impl.name == "deepspeed":
         return initialize_deepspeed(model, dataset, tokenizer, cfg_train, cfg_impl, setup=setup)  # cannot resume
+    elif cfg_impl.name == "distill-torch":
+        return initialize_distill_torch(model, dataset, tokenizer, cfg_train, cfg_impl, elapsed_time, setup=setup)
     else:
         raise ValueError(f"Invalid backend {cfg_impl.name} given.")

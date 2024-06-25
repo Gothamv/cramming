@@ -26,12 +26,190 @@ from .components import (
 from .attention import get_attention_mechanism
 
 
+############################################################################################
+# Distillation versions
+############################################################################################
+
+class distillCrammedBertConfig(PretrainedConfig):
+    model_type = "distilCrammedBERT"
+
+    def __init__(self, cfg_arch_container: dict = {}, **kwargs):
+        self.arch = cfg_arch_container
+        super().__init__(**kwargs)
+
+
+def distil_construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None):
+    """See the config file for details on what is possible."""
+    config = distillCrammedBertConfig(OmegaConf.to_container(cfg_arch, resolve=True))
+    config.arch["embedding"]["vocab_size"] = vocab_size
+    config.arch["num_labels"] = downstream_classes
+
+    if downstream_classes is None:
+        if config.arch["objective_layout"] == "MLM":
+            model = DistilScriptableLMForPreTraining(config)
+        else:
+            raise ValueError(f"Invalid layout {config.arch['objective_layout']} of training objective given.")
+    else:
+        model = DistilScriptableLM(config)
+    return model
+
+class DistilScriptableLM(PreTrainedModel):
+    """Simplified transformer wrapper. (With Distillation)"""
+
+    config_class = distillCrammedBertConfig
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.cfg = OmegaConf.create(config.arch)
+
+        self.embedding = EmbeddingComponent(self.cfg.embedding, self.cfg.norm, self.cfg.norm_eps)
+        self.layers = torch.nn.ModuleList([TransformerLayer(idx, self.cfg) for idx in range(self.cfg.num_transformer_layers)])
+        self.seq_first = self.layers[0].LAYOUT == "[S B H]" if len(self.layers) > 0 else False
+        self.use_causal_attention = self.cfg.attention.causal_attention
+
+        if self.cfg.final_norm:
+            self.final_norm = _get_norm_fn(self.cfg.norm)(self.cfg.hidden_size, eps=self.cfg.norm_eps)
+        else:
+            self.final_norm = torch.nn.Identity()
+        
+        # Distillation point
+        self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
+
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
+        if attention_mask is not None:
+            attention_mask = get_extended_attention_mask(attention_mask, input_ids.shape, self.use_causal_attention)
+        hidden_states = self.embedding(input_ids)
+
+        if self.seq_first:
+            hidden_states = hidden_states.transpose(0, 1).contiguous()
+
+        intermediate_output = None
+
+        # Capture intermediate outputs
+        for i, layer_module in enumerate(self.layers):
+            hidden_states = layer_module(hidden_states, attention_mask)
+            if i + 1 == self.distill_point:
+                intermediate_output = hidden_states.clone()
+
+        if self.seq_first:
+            hidden_states = hidden_states.transpose(0, 1).contiguous()
+            if intermediate_output is not None:
+                intermediate_output = intermediate_output.transpose(0, 1).contiguous()
+        
+        final_output = self.final_norm(hidden_states)
+
+        return final_output, intermediate_output
+
+
+class DistilScriptableLMForPreTraining(PreTrainedModel):
+    """Pretraining version with optional prediction head and variant for sparse prediction. (With Distillation)"""
+
+    config_class = distillCrammedBertConfig
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.cfg = OmegaConf.create(config.arch)
+
+        self.encoder = ScriptableLM(config)
+
+        if not self.cfg.skip_head_transform:
+            self.prediction_head = PredictionHeadComponent(self.cfg)
+        else:
+            self.prediction_head = torch.nn.Identity()  # from linear in old version
+
+        self.decoder = torch.nn.Linear(self.cfg.embedding.embedding_dim, self.cfg.embedding.vocab_size, bias=self.cfg.decoder_bias)
+        self.decoder.weight = self.encoder.embedding.word_embedding.weight
+
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+        self.sparse_prediction = self.cfg.sparse_prediction
+
+        # Distillation Loss
+        self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean')
+        # Temperature
+        self.temperature = self.cfg.temperature
+        self._init_weights()
+
+    def _init_weights(self, module=None):
+        modules = self.modules() if module is None else [module]
+        for module in modules:
+            _init_module(
+                module,
+                self.cfg.init.type,
+                self.cfg.init.std,
+                self.cfg.hidden_size,
+                self.cfg.num_transformer_layers,
+            )
+
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, **kwargs):
+        final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
+        final_outputs = final_outputs.view(-1, final_outputs.shape[-1])
+        intermediate_outputs = intermediate_outputs.view(-1, intermediate_outputs.shape[-1])
+
+        if self.sparse_prediction and labels is not None:
+            masked_lm_loss = self._forward_sparse(final_outputs, labels)
+        else:
+            final_logits = self.decoder(self.prediction_head(final_outputs))
+            intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
+
+            if labels is not None:
+                masked_lm_loss = self.loss_fn(final_logits, labels.view(-1))
+
+                # Compute distillation loss
+                distillation_loss = self.compute_distillation_loss(final_logits, intermediate_logits)
+
+                # Combine losses
+                total_loss = masked_lm_loss + distillation_loss
+            else:
+                total_loss = final_logits.new_zeros((1,))
+
+        return {"loss": total_loss,
+                "outputs": final_logits,
+                "distillation_loss": distillation_loss}
+    
+    def compute_distillation_loss(self, teacher_logits, student_logits):
+        student_probs = torch.nn.functional.log_softmax(student_logits / self.temperature, dim=-1)
+        teacher_probs = torch.nn.functional.softmax(teacher_logits / self.temperature, dim=-1)
+        distillation_loss = self.distillation_loss(student_probs, teacher_probs) * (self.temperature ** 2)
+        return distillation_loss
+
+
+    # Sparse prediction usually has an unpredictable number of entries in each batch
+    # but the dataloader was modified so that 25% of the batch is ALWAYS masked.
+    # This allows for static compilation. If you modify the dataloader, this function will fill your compile cache
+    def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
+
+        labels = labels.view(-1)
+        mask_positions = labels.view(-1) != self.loss_fn.ignore_index
+        num_masks_guaranteed = round(self.sparse_prediction * labels.shape[0])
+        # outputs = outputs[mask_positions]  # not allowed as dynamic shape op
+        # labels = labels[mask_positions]
+        # torch.masked_select(labels, mask_positions)  # not allowed as a dynamic shape operator
+
+        # indices = torch.arange(mask_positions.shape[0], device=outputs.device)[mask_positions] # not allowed
+        indices = torch.argsort(mask_positions.int())[-num_masks_guaranteed:]  # ugh
+
+        outputs = outputs[indices]  # not allowed as dynamic shape op, but ok with indices
+        labels = labels[indices]
+        # alternative:
+        # outputs = torch.take_along_dim(outputs, indices.view(-1, 1), 0)
+        # labels = torch.take(labels, indices)
+
+        outputs = self.decoder(self.prediction_head(outputs))
+        masked_lm_loss = self.loss_fn(outputs, labels)
+        return masked_lm_loss
+
+
+############################################################################################
+# Cramming Versions
+############################################################################################
+
 class crammedBertConfig(PretrainedConfig):
     model_type = "crammedBERT"
 
     def __init__(self, cfg_arch_container: dict = {}, **kwargs):
         self.arch = cfg_arch_container
         super().__init__(**kwargs)
+
 
 
 def construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None):
@@ -156,7 +334,7 @@ class ScriptableLM(PreTrainedModel):
 class ScriptableLMForPreTraining(PreTrainedModel):
     """Pretraining version with optional prediction head and variant for sparse prediction."""
 
-    config_class = crammedBertConfig
+    config_class = distillCrammedBertConfig
 
     def __init__(self, config):
         super().__init__(config)
@@ -448,3 +626,7 @@ AutoModel.register(crammedBertConfig, ScriptableLM)
 AutoModelForMaskedLM.register(crammedBertConfig, ScriptableLMForPreTraining)
 AutoModelForSequenceClassification.register(crammedBertConfig, ScriptableLMForSequenceClassification)
 AutoModelForTokenClassification.register(crammedBertConfig, ScriptableLMForTokenClassification)
+
+AutoConfig.register("distilCrammedBERT", distillCrammedBertConfig)
+AutoModel.register(distillCrammedBertConfig, DistilScriptableLM)
+AutoModelForMaskedLM.register(distillCrammedBertConfig, DistilScriptableLMForPreTraining)
