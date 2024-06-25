@@ -145,27 +145,28 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         final_outputs = final_outputs.view(-1, final_outputs.shape[-1])
         intermediate_outputs = intermediate_outputs.view(-1, intermediate_outputs.shape[-1])
 
-        if self.sparse_prediction and labels is not None:
-            masked_lm_loss = self._forward_sparse(final_outputs, labels)
-        else:
-            final_logits = self.decoder(self.prediction_head(final_outputs))
-            intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
+        final_logits = self.decoder(self.prediction_head(final_outputs))
+        intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
 
-            if labels is not None:
+        total_loss = final_logits.new_zeros((1,))
+        distillation_loss = final_logits.new_zeros((1,))
+        masked_lm_loss = final_logits.new_zeros((1,))
+
+        if labels is not None:
+            if self.sparse_prediction:
+                masked_lm_loss = self._forward_sparse(final_outputs, labels)
+            else:
                 masked_lm_loss = self.loss_fn(final_logits, labels.view(-1))
 
-                # Compute distillation loss
-                distillation_loss = self.compute_distillation_loss(final_logits, intermediate_logits)
+            # Compute distillation loss
+            distillation_loss = self.compute_distillation_loss(final_logits, intermediate_logits)
 
-                # Combine losses
-                total_loss = masked_lm_loss + distillation_loss
-            else:
-                total_loss = final_logits.new_zeros((1,))
-                distillation_loss = total_loss
+        return {
+            "outputs": final_logits,
+            "distillation_loss": distillation_loss,
+            "mlm_loss": masked_lm_loss
+        }
 
-        return {"loss": total_loss,
-                "outputs": final_logits,
-                "distillation_loss": distillation_loss}
     
     def compute_distillation_loss(self, teacher_logits, student_logits):
         student_probs = torch.nn.functional.log_softmax(student_logits / self.temperature, dim=-1)

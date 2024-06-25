@@ -131,7 +131,7 @@ class DistillTorchEngineMinimal(torch.nn.Module):
 
         with context():
             outputs = self.forward(**batch)
-            mlm_loss = outputs["loss"]
+            mlm_loss = outputs["mlm_loss"]
             distillation_loss = outputs.get("distillation_loss", torch.tensor(0.0).to(mlm_loss.device))
             total_loss = mlm_loss + distillation_loss # add distillation weight here
 
