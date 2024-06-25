@@ -161,6 +161,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
                 total_loss = masked_lm_loss + distillation_loss
             else:
                 total_loss = final_logits.new_zeros((1,))
+                distillation_loss = total_loss
 
         return {"loss": total_loss,
                 "outputs": final_logits,
