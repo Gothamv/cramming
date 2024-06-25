@@ -3,7 +3,7 @@
 
 # These are the huggingface bert parameters
 architectures:
-  - ScriptableCrammedBERT
+  - DistillScriptableCrammedBERT
 
 num_transformer_layers: 16
 hidden_size: 768
