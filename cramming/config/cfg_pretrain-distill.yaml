@@ -4,7 +4,7 @@
 defaults:
   - arch: hf-bert-tiny
   - data: sanity-check-2
-  - impl: torch-default
+  - impl: distill-torch
   - wandb: none
   - train: bert-base
   - _self_
