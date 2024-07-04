@@ -198,7 +198,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
 
         labels = labels.view(-1)
-        mask_positions = labels.view(-1) != self.loss_fn.ignore_index
+        mask_positions = labels.view(-1) != self.mlm_loss_fn.ignore_index
         num_masks_guaranteed = round(self.sparse_prediction * labels.shape[0])
         # outputs = outputs[mask_positions]  # not allowed as dynamic shape op
         # labels = labels[mask_positions]
@@ -214,7 +214,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         # labels = torch.take(labels, indices)
 
         outputs = self.decoder(self.prediction_head(outputs))
-        masked_lm_loss = self.loss_fn(outputs, labels)
+        masked_lm_loss = self.mlm_loss_fn(outputs, labels)
         return masked_lm_loss
 
 
