@@ -137,8 +137,7 @@ def collect_stats(step, total_loss_vals, teacher_mlm_loss_vals, student_mlm_loss
     current_lr = model_engine.optimizer.param_groups[0].get("lr", float("NaN"))
     # log_msg = f"Train loss {loss_vals[-1].item():2.4f} at step {step} with lr {current_lr:.5f}. "
     # log_msg += f"[Avg: {stats['loss'][-1]:2.4f}] "
-    log_msg = f"Train loss {stats['total_loss'][-1]:2.4f} (Teacher MLM: {stats['teacher_mlm_loss'][-1]:2.4f}, Student MLM: {stats['student_mlm_loss'][-1]:2.4f},
-      Distill: {stats['distillation_loss'][-1]:2.4f}) at step {step} with lr {current_lr:.5f}. "
+    log_msg = f"Train loss {stats['total_loss'][-1]:2.4f} (Teacher MLM: {stats['teacher_mlm_loss'][-1]:2.4f}, Student MLM: {stats['student_mlm_loss'][-1]:2.4f}, Distill: {stats['distillation_loss'][-1]:2.4f}) at step {step} with lr {current_lr:.5f}."
     if step > 0:
         stats["train_time"] += [(time.time() - train_time) / cfg.impl.print_loss_every_nth_step]
         estimated_train_finish = str(datetime.timedelta(seconds=stats["train_time"][-1] * cfg.train.steps))
