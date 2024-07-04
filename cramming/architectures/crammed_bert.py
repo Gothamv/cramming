@@ -121,11 +121,12 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.decoder = torch.nn.Linear(self.cfg.embedding.embedding_dim, self.cfg.embedding.vocab_size, bias=self.cfg.decoder_bias)
         self.decoder.weight = self.encoder.embedding.word_embedding.weight
 
-        self.mlm_loss_fn = torch.nn.CrossEntropyLoss()
+        self.mlm_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100)
         self.sparse_prediction = self.cfg.sparse_prediction
 
         # Distillation Loss
         self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean')
+        self.cos_loss = torch.nn.CosineEmbeddingLoss(reduction='mean')
         self.temperature = self.cfg.temperature # Temperature
         self.alpha_ce = self.cfg.alpha_ce  # Weight for soft distillation loss
         self.alpha_mlm = self.cfg.alpha_mlm  # Weight for MLM loss
@@ -177,7 +178,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
 
         # Cosine embedding loss
-        cos_loss = 1 - F.cosine_similarity(student_hidden_states, teacher_hidden_states, dim=-1).mean()
+        cos_loss = self.cos_loss(student_hidden_states, teacher_hidden_states, torch.ones(student_hidden_states.size(0)).to(student_hidden_states.device))
 
         # Combine losses
         distillation_loss = (
