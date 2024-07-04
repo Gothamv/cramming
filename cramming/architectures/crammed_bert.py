@@ -146,14 +146,14 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
-        final_outputs = final_outputs.view(-1, final_outputs.shape[-1])
-        final_logits = self.decoder(self.prediction_head(final_outputs))
+        final_outputs = self.prediction_head(final_outputs)
+        final_logits = self.decoder(final_outputs)
         
         loss_dict = None
         if labels is not None and intermediate_outputs is not None:
-            teacher_mlm_loss = self.mlm_loss_fn(final_logits, labels.view(-1))
-            intermediate_outputs = intermediate_outputs.view(-1, intermediate_outputs.shape[-1])
-            intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
+            teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
+            intermediate_outputs = self.prediction_head(intermediate_outputs)
+            intermediate_logits = self.decoder(intermediate_outputs)
             loss_dict = self.compute_distilbert_loss(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs)
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
 
@@ -164,13 +164,12 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             "distillation_loss": loss_dict["distillation_loss"] if loss_dict else None,
         }
 
-    
     def compute_distilbert_loss(self, student_logits, teacher_logits, labels, student_hidden_states, teacher_hidden_states):
         # MLM loss
         if self.sparse_prediction:
             mlm_loss = self._forward_sparse(student_logits, labels)
         else:
-            mlm_loss = self.mlm_loss_fn(student_logits, labels.view(-1))
+            mlm_loss = self.mlm_loss_fn(student_logits.view(-1, student_logits.size(-1)), labels.view(-1))
 
         # Soft distillation loss
         student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
@@ -192,28 +191,15 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             "distillation_loss": distillation_loss,
         }
 
-    # Sparse prediction usually has an unpredictable number of entries in each batch
-    # but the dataloader was modified so that 25% of the batch is ALWAYS masked.
-    # This allows for static compilation. If you modify the dataloader, this function will fill your compile cache
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
-
         labels = labels.view(-1)
-        mask_positions = labels.view(-1) != self.mlm_loss_fn.ignore_index
+        mask_positions = labels != self.mlm_loss_fn.ignore_index
         num_masks_guaranteed = round(self.sparse_prediction * labels.shape[0])
-        # outputs = outputs[mask_positions]  # not allowed as dynamic shape op
-        # labels = labels[mask_positions]
-        # torch.masked_select(labels, mask_positions)  # not allowed as a dynamic shape operator
+        indices = torch.argsort(mask_positions.int())[-num_masks_guaranteed:]
 
-        # indices = torch.arange(mask_positions.shape[0], device=outputs.device)[mask_positions] # not allowed
-        indices = torch.argsort(mask_positions.int())[-num_masks_guaranteed:]  # ugh
-
-        outputs = outputs[indices]  # not allowed as dynamic shape op, but ok with indices
+        outputs = outputs.view(-1, outputs.size(-1))[indices]
         labels = labels[indices]
-        # alternative:
-        # outputs = torch.take_along_dim(outputs, indices.view(-1, 1), 0)
-        # labels = torch.take(labels, indices)
 
-        outputs = self.decoder(self.prediction_head(outputs))
         masked_lm_loss = self.mlm_loss_fn(outputs, labels)
         return masked_lm_loss
 
