@@ -80,6 +80,7 @@ class DistillTorchEngineMinimal(torch.nn.Module):
 
         self.last_mlm_loss = 0.0
         self.last_distillation_loss = 0.0
+        self.last_cos_loss = 0.0 
 
         # Mixed Precision:
         enabled = self.cfg_impl.mixed_precision if setup["device"].type != "cpu" else False
@@ -131,17 +132,20 @@ class DistillTorchEngineMinimal(torch.nn.Module):
 
         with context():
             outputs = self.forward(**batch)
-            mlm_loss = outputs["mlm_loss"]
-            distillation_loss = outputs.get("distillation_loss", torch.tensor(0.0).to(mlm_loss.device))
-            total_loss = mlm_loss + distillation_loss # add distillation weight here
+            teacher_mlm_loss = outputs["teacher_mlm_loss"]
+            student_mlm_loss = outputs["student_mlm_loss"]
+            distillation_loss = outputs["distillation_loss"]
 
+            total_loss = teacher_mlm_loss + distillation_loss
             self.backward(total_loss)
             self.optimizer_step()
 
-            self.last_mlm_loss = mlm_loss.item()
+            self.last_teacher_mlm_loss = teacher_mlm_loss.item()
+            self.last_student_mlm_loss = student_mlm_loss.item()
             self.last_distillation_loss = distillation_loss.item()
+            self.last_total_loss = total_loss.item()
 
-        return total_loss.detach(), mlm_loss.detach(), distillation_loss.detach()
+        return total_loss.detach(), teacher_mlm_loss.detach(), student_mlm_loss.detach(), distillation_loss.detach()
     
     def get_distillation_weight(self):
         pass

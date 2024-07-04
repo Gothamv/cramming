@@ -66,3 +66,6 @@ classification_head:
 # Distillation settings:
 temperature: 2.0
 student_layer_size: 4
+alpha_ce: 0.5
+alpha_mlm: 0.5
+alpha_cos: 0.5

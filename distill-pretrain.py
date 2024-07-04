@@ -42,7 +42,7 @@ def main_training_process(cfg, setup):
     wallclock_timer = time.time() - elapsed_time
     train_time = time.time()
     training_allowed, no_recovery_necessary = True, True
-    loss_vals = []
+    total_loss_vals, teacher_mlm_loss_vals, student_mlm_loss_vals, distillation_loss_vals = [], [], [], []
 
     # Launch training
     for step, batch in enumerate(dataloader, initial_step + 1):
@@ -50,17 +50,20 @@ def main_training_process(cfg, setup):
         # Heavy lifting is moved to engines
         device_batch = model_engine.to_device(batch)
         #loss = model_engine.step(device_batch)
-        total_loss, mlm_loss, distillation_loss = model_engine.step(device_batch)
-        loss_vals.append(total_loss.detach())
+        total_loss, logits, teacher_mlm_loss, student_mlm_loss, distillation_loss = model_engine.step(device_batch)
+        total_loss_vals.append(total_loss.detach())
+        teacher_mlm_loss_vals.append(teacher_mlm_loss.detach())
+        student_mlm_loss_vals.append(student_mlm_loss.detach())
+        distillation_loss_vals.append(distillation_loss.detach())
 
         # Check stopping criteria
         if check_deadline(wallclock_timer, cfg.budget) or step == cfg.train.steps:
             training_allowed = False
             log.info("Reached deadline. Stopping training ...")
 
-        # Collect stats and print to console and upload to wandb
         if step % cfg.impl.print_loss_every_nth_step == 0:
-            loss_vals, train_time = collect_stats(step, loss_vals, train_time, stats, model_engine, dataloader, cfg)
+            total_loss_vals, train_time = collect_stats(step, total_loss_vals, teacher_mlm_loss_vals, student_mlm_loss_vals,
+                                                   distillation_loss_vals, train_time, stats, model_engine, dataloader, cfg)
             if check_early_termination(wallclock_timer, stats["total_loss"][-1], cfg.impl.early_termination):
                 training_allowed = False
                 log.info("Loss higher than allowed threshold. Stopping training early...")
@@ -75,7 +78,7 @@ def main_training_process(cfg, setup):
                 model_engine, step, training_allowed, no_recovery_necessary, cfg
             )
 
-        communicate_flags(training_allowed, no_recovery_necessary)
+        training_allowed, no_recovery_necessary = communicate_flags(training_allowed, no_recovery_necessary)
 
         if (cfg.dryrun and step > 2) or not training_allowed:
             break
@@ -118,23 +121,24 @@ def check_early_termination(launch_time, loss, early_termination):
         return False
 
 
-def collect_stats(step, loss_vals, train_time, stats, model_engine, dataloader, cfg):
+def collect_stats(step, total_loss_vals, teacher_mlm_loss_vals, student_mlm_loss_vals,
+                  distillation_loss_vals, train_time, stats, model_engine, dataloader, cfg):
     stats["step"] += [step]
     stats["epoch"] += [dataloader.epoch_counter]
 
     tokens_per_step = model_engine.record_tokens_per_step()
     stats["tokens"] += [step * tokens_per_step]
-    #stats["loss"] += [torch.stack(loss_vals).mean().item()]  # Averaged loss
-    stats["total_loss"] += [torch.stack(loss_vals).mean().item()] # Averaged loss
-    stats["mlm_loss"] += [model_engine.last_mlm_loss]
-    stats["distillation_loss"] += [model_engine.last_distillation_loss]
+    stats["total_loss"] += [torch.stack(total_loss_vals).mean().item()]
+    stats["teacher_mlm_loss"] += [torch.stack(teacher_mlm_loss_vals).mean().item()]
+    stats["student_mlm_loss"] += [torch.stack(student_mlm_loss_vals).mean().item()]
+    stats["distillation_loss"] += [torch.stack(distillation_loss_vals).mean().item()]
 
 
     current_lr = model_engine.optimizer.param_groups[0].get("lr", float("NaN"))
     # log_msg = f"Train loss {loss_vals[-1].item():2.4f} at step {step} with lr {current_lr:.5f}. "
     # log_msg += f"[Avg: {stats['loss'][-1]:2.4f}] "
-    log_msg = f"Train loss {loss_vals[-1].item():2.4f} (MLM: {stats['mlm_loss'][-1]:2.4f}, Distill: {stats['distillation_loss'][-1]:2.4f}) at step {step} with lr {current_lr:.5f}. "
-    log_msg += f"[Avg: {stats['total_loss'][-1]:2.4f}] "
+    log_msg = f"Train loss {stats['total_loss'][-1]:2.4f} (Teacher MLM: {stats['teacher_mlm_loss'][-1]:2.4f}, Student MLM: {stats['student_mlm_loss'][-1]:2.4f},
+      Distill: {stats['distillation_loss'][-1]:2.4f}) at step {step} with lr {current_lr:.5f}. "
     if step > 0:
         stats["train_time"] += [(time.time() - train_time) / cfg.impl.print_loss_every_nth_step]
         estimated_train_finish = str(datetime.timedelta(seconds=stats["train_time"][-1] * cfg.train.steps))
@@ -153,9 +157,9 @@ def collect_stats(step, loss_vals, train_time, stats, model_engine, dataloader, 
     log.info(log_msg)
 
     # Clear:
-    loss_vals = []
+    teacher_mlm_loss_vals, student_mlm_loss_vals, distillation_loss_vals, total_loss_vals = [], [], [], []
     train_time = time.time()
-    return loss_vals, train_time
+    return total_loss_vals, train_time
 
 
 def engage_troubleshooting(model_engine, step, training_allowed, no_recovery_necessary, cfg):
