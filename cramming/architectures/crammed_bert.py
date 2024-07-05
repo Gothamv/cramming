@@ -165,7 +165,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             "distillation_loss": loss_dict["distillation_loss"] if loss_dict else None,
         }
 
-    def compute_distilbert_loss(self, student_logits, teacher_logits, labels, student_hidden_states, teacher_hidden_states):
+    def compute_distilbert_loss(self, teacher_logits, student_logits, labels, student_hidden_states, teacher_hidden_states):
         # MLM loss
         if self.sparse_prediction:
             mlm_loss = self._forward_sparse(student_logits, labels)
@@ -184,7 +184,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             teacher_hidden_states.view(-1, hidden_dim),
             torch.ones(batch_size * seq_length).to(student_hidden_states.device)
         )
-        
+
         # Combine losses
         distillation_loss = (
             self.alpha_ce * soft_loss +
