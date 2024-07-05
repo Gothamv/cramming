@@ -178,8 +178,13 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
 
         # Cosine embedding loss
-        cos_loss = self.cos_loss(student_hidden_states, teacher_hidden_states, torch.ones(student_hidden_states.size(0)).to(student_hidden_states.device))
-
+        batch_size, seq_length, hidden_dim = student_hidden_states.size()
+        cos_loss = self.cos_loss(
+            student_hidden_states.view(-1, hidden_dim),
+            teacher_hidden_states.view(-1, hidden_dim),
+            torch.ones(batch_size * seq_length).to(student_hidden_states.device)
+        )
+        
         # Combine losses
         distillation_loss = (
             self.alpha_ce * soft_loss +
