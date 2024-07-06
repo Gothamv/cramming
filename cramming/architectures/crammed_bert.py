@@ -144,25 +144,28 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
                 self.cfg.num_transformer_layers,
             )
 
-    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation=True):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
         final_outputs = self.prediction_head(final_outputs)
         final_logits = self.decoder(final_outputs)
         
         loss_dict = None
-        if labels is not None and intermediate_outputs is not None:
+        if labels is not None:
             teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
-            intermediate_outputs = self.prediction_head(intermediate_outputs)
-            intermediate_logits = self.decoder(intermediate_outputs)
-            loss_dict = self.compute_distilbert_loss(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs)
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
 
+            if compute_distillation and intermediate_outputs is not None:
+                intermediate_outputs = self.prediction_head(intermediate_outputs)
+                intermediate_logits = self.decoder(intermediate_outputs)
+                distill_loss_dict = self.compute_distilbert_loss(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs)
+                loss_dict.update(distill_loss_dict)
+
         return {
-            "teacher_mlm_loss": loss_dict["teacher_mlm_loss"] if loss_dict else None,
+            "teacher_mlm_loss": loss_dict.get("teacher_mlm_loss"),
             "logits": final_logits,
-            "student_mlm_loss": loss_dict["student_mlm_loss"] if loss_dict else None,
-            "distillation_loss": loss_dict["distillation_loss"] if loss_dict else None,
+            "student_mlm_loss": loss_dict.get("student_mlm_loss", torch.tensor(0.0, device=final_logits.device)),
+            "distillation_loss": loss_dict.get("distillation_loss", torch.tensor(0.0, device=final_logits.device)),
         }
 
     def compute_distilbert_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states):
