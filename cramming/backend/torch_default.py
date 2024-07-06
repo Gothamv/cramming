@@ -97,16 +97,16 @@ class DistillTorchEngineMinimal(torch.nn.Module):
 
         from ..utils import flatten
 
-        # model = torch.compile(
-        #     model,
-        #     mode=self.cfg_impl.mode,
-        #     dynamic=self.cfg_impl.dynamic,
-        #     fullgraph=self.cfg_impl.fullgraph,
-        #     backend=self.cfg_impl.backend,
-        #     disable=not cfg_impl.compile_torch,
-        #     # detailed options; cannot be given at the same time as mode:
-        #     options=flatten(cfg_impl._inductor_vars, parent_key="", sep=".") if cfg_impl._inductor_vars is not None else None,
-        # )
+        model = torch.compile(
+            model,
+            mode=self.cfg_impl.mode,
+            dynamic=self.cfg_impl.dynamic,
+            fullgraph=self.cfg_impl.fullgraph,
+            backend=self.cfg_impl.backend,
+            disable=not cfg_impl.compile_torch,
+            # detailed options; cannot be given at the same time as mode:
+            options=flatten(cfg_impl._inductor_vars, parent_key="", sep=".") if cfg_impl._inductor_vars is not None else None,
+        )
 
         if torch.distributed.is_initialized():
             self.model = self._init_distributed(model)
@@ -135,6 +135,11 @@ class DistillTorchEngineMinimal(torch.nn.Module):
             teacher_mlm_loss = outputs["teacher_mlm_loss"]
             student_mlm_loss = outputs["student_mlm_loss"]
             distillation_loss = outputs["distillation_loss"]
+
+            if self.step < 20000 or self.step > 150000:
+                distillation_loss = 0.0
+            else:
+                distillation_loss = distillation_loss
 
             total_loss = teacher_mlm_loss + distillation_loss
             self.backward(total_loss)
