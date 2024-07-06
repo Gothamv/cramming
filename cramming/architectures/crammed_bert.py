@@ -144,13 +144,13 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
                 self.cfg.num_transformer_layers,
             )
 
-    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation=True):
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = True):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
         final_outputs = self.prediction_head(final_outputs)
         final_logits = self.decoder(final_outputs)
         
-        loss_dict = None
+        loss_dict = dict()
         if labels is not None:
             teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
