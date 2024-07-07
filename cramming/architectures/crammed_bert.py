@@ -126,7 +126,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.sparse_prediction = self.cfg.sparse_prediction
 
         # Distillation Loss
-        self.distillation_loss_fn = self.compute_distillbert_loss() if self.cfg.distill_type == "cutoff" else self.compute_distillation_loss()
+        self.distillation_loss_fn = self.compute_distillbert_loss if self.cfg.distill_type == "cutoff" else self.compute_distillation_loss
         self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean')
         self.cos_loss = torch.nn.CosineEmbeddingLoss(reduction='mean')
         self.temperature = self.cfg.temperature # Temperature
