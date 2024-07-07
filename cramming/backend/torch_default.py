@@ -141,7 +141,6 @@ class DistillTorchEngineMinimal(torch.nn.Module):
                 distillation_loss = distillation_loss
             else:
                 distillation_loss = torch.tensor(0.0, device=self.setup["device"])
-                
 
             total_loss = teacher_mlm_loss + distillation_loss
             self.backward(total_loss)
@@ -154,8 +153,6 @@ class DistillTorchEngineMinimal(torch.nn.Module):
 
         return total_loss.detach(), teacher_mlm_loss.detach(), student_mlm_loss.detach(), distillation_loss.detach()
     
-    def get_distillation_weight(self):
-        pass
 
 
     def to_device(self, batch: dict[str, torch.Tensor], keys: list[str] = ["input_ids", "labels"]):
@@ -447,16 +444,16 @@ class TorchEngineMinimal(torch.nn.Module):
 
         from ..utils import flatten
 
-        # model = torch.compile(
-        #     model,
-        #     mode=self.cfg_impl.mode,
-        #     dynamic=self.cfg_impl.dynamic,
-        #     fullgraph=self.cfg_impl.fullgraph,
-        #     backend=self.cfg_impl.backend,
-        #     disable=not cfg_impl.compile_torch,
-        #     # detailed options; cannot be given at the same time as mode:
-        #     options=flatten(cfg_impl._inductor_vars, parent_key="", sep=".") if cfg_impl._inductor_vars is not None else None,
-        # )
+        model = torch.compile(
+            model,
+            mode=self.cfg_impl.mode,
+            dynamic=self.cfg_impl.dynamic,
+            fullgraph=self.cfg_impl.fullgraph,
+            backend=self.cfg_impl.backend,
+            disable=not cfg_impl.compile_torch,
+            # detailed options; cannot be given at the same time as mode:
+            options=flatten(cfg_impl._inductor_vars, parent_key="", sep=".") if cfg_impl._inductor_vars is not None else None,
+        )
 
         if torch.distributed.is_initialized():
             self.model = self._init_distributed(model)

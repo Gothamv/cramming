@@ -96,6 +96,7 @@ class DistillScriptableLM(PreTrainedModel):
             hidden_states = hidden_states.transpose(0, 1).contiguous()
             if intermediate_output is not None:
                 intermediate_output = intermediate_output.transpose(0, 1).contiguous()
+                intermediate_output = self.final_norm(intermediate_output)
         
         final_output = self.final_norm(hidden_states)
 
@@ -125,6 +126,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.sparse_prediction = self.cfg.sparse_prediction
 
         # Distillation Loss
+        self.distillation_loss_fn = self.compute_distillbert_loss if self.cfg.distillation_type == "soft" else self.compute_distillation_loss
         self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean')
         self.cos_loss = torch.nn.CosineEmbeddingLoss(reduction='mean')
         self.temperature = self.cfg.temperature # Temperature
@@ -144,41 +146,46 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
                 self.cfg.num_transformer_layers,
             )
 
-    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = True):
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
         final_outputs = self.prediction_head(final_outputs)
         final_logits = self.decoder(final_outputs)
+
+        intermediate_outputs = self.prediction_head(intermediate_outputs)
+        intermediate_logits = self.decoder(intermediate_outputs)
         
         loss_dict = dict()
         if labels is not None:
             teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
+            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.view(-1, intermediate_logits.size(-1)), labels.view(-1))
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
+            loss_dict["student_mlm_loss"] = student_mlm_loss
 
             if compute_distillation and intermediate_outputs is not None:
-                intermediate_outputs = self.prediction_head(intermediate_outputs)
-                intermediate_logits = self.decoder(intermediate_outputs)
-                distill_loss_dict = self.compute_distilbert_loss(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs)
+                distill_loss_dict = self.compute_distillbert_loss(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs, student_mlm_loss)
                 loss_dict.update(distill_loss_dict)
 
         return {
             "teacher_mlm_loss": loss_dict.get("teacher_mlm_loss"),
             "logits": final_logits,
+            "intermediate_logits": intermediate_logits,
             "student_mlm_loss": loss_dict.get("student_mlm_loss", torch.tensor(0.0, device=final_logits.device)),
             "distillation_loss": loss_dict.get("distillation_loss", torch.tensor(0.0, device=final_logits.device)),
         }
 
-    def compute_distilbert_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states):
+    def compute_distillbert_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
         # MLM loss
-        if self.sparse_prediction:
-            mlm_loss = self._forward_sparse(student_logits, labels)
-        else:
-            mlm_loss = self.mlm_loss_fn(student_logits.view(-1, student_logits.size(-1)), labels.view(-1))
+        # if self.sparse_prediction:
+        #     mlm_loss = self._forward_sparse(student_logits, labels)
+        # else:
+        #     mlm_loss = self.mlm_loss_fn(student_logits.view(-1, student_logits.size(-1)), labels.view(-1))
 
         # Soft distillation loss
         student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
         teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
         soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
+    
 
         # Cosine embedding loss
         batch_size, seq_length, hidden_dim = student_hidden_states.size()
@@ -191,13 +198,46 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         # Combine losses
         distillation_loss = (
             self.alpha_ce * soft_loss +
-            self.alpha_mlm * mlm_loss +
+            self.alpha_mlm * student_mlm_loss +
             self.alpha_cos * cos_loss
         )
         
         return {
-            "student_mlm_loss": mlm_loss,
             "distillation_loss": distillation_loss,
+        }
+    
+    def compute_distillation_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
+
+        # Soft distillation loss
+        student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
+        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
+        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
+    
+        # Combine losses
+        distillation_loss = (
+            self.alpha_ce * soft_loss +
+            self.alpha_mlm * student_mlm_loss
+        )
+        
+        return {
+            "distillation_loss": distillation_loss,
+        }
+    
+
+    def predict(self, input_ids, attention_mask: Optional[torch.Tensor] = None):
+        final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
+        
+        final_outputs = self.prediction_head(final_outputs)
+        final_logits = self.decoder(final_outputs)
+        
+        intermediate_logits = None
+        if intermediate_outputs is not None:
+            intermediate_outputs = self.prediction_head(intermediate_outputs)
+            intermediate_logits = self.decoder(intermediate_outputs)
+        
+        return {
+            "final_logits": final_logits,
+            "intermediate_logits": intermediate_logits,
         }
 
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
@@ -211,6 +251,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
 
         masked_lm_loss = self.mlm_loss_fn(outputs, labels)
         return masked_lm_loss
+
 
 
 ############################################################################################

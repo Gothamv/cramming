@@ -49,7 +49,7 @@ def main_downstream_process(cfg, setup):
             for step, batch in enumerate(task["trainloader"]):
                 # Heavy lifting is moved to engines
                 device_batch = model_engine.to_device(batch, keys=["input_ids", "labels", "attention_mask"])
-                loss = model_engine.step(device_batch)
+                _, loss, _, _ = model_engine.step(device_batch)
                 loss_vals.append(loss.detach())
                 if cfg.dryrun:
                     break

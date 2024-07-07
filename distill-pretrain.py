@@ -50,7 +50,7 @@ def main_training_process(cfg, setup):
         # Heavy lifting is moved to engines
         device_batch = model_engine.to_device(batch)
         #loss = model_engine.step(device_batch)
-        total_loss, teacher_mlm_loss, student_mlm_loss, distillation_loss = model_engine.step(device_batch)
+        total_loss, teacher_mlm_loss, student_mlm_loss, distillation_loss = model_engine.step(device_batch) # add a distillation switch here
         total_loss_vals.append(total_loss.detach())
         teacher_mlm_loss_vals.append(teacher_mlm_loss.detach())
         student_mlm_loss_vals.append(student_mlm_loss.detach())
