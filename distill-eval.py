@@ -140,7 +140,7 @@ def validate(model_engine, validloader, metric, setup, cfg):
     return {k: float(v) for k, v in eval_metric.items()}  # force float returns
 
 
-@hydra.main(config_path="cramming/config", config_name="cfg_eval", version_base="1.1")
+@hydra.main(config_path="cramming/config", config_name="cfg_eval-distill", version_base="1.1")
 def launch(cfg):
     cramming.utils.main_launcher(cfg, main_downstream_process, job_name="downstream finetuning")
 
