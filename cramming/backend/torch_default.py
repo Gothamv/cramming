@@ -126,13 +126,19 @@ class DistillTorchEngineMinimal(torch.nn.Module):
         self.initial_time = time.time() - already_elapsed_time
         self.optimizer, self.scheduler = _load_optimizer(model, cfg_train, cfg_impl, self.initial_time)
 
-    def step(self, batch: dict[str, torch.Tensor]):
+    def step(self, batch: dict[str, torch.Tensor], train=True):
         self.accumulated_samples += self.effective_mbs
         context = self.model.no_sync if self.accumulated_samples < self.current_batch_size else nullcontext
 
         with context():
             compute_distillation = self.cfg_impl.dist_start < self.steps <= self.cfg_impl.dist_end
             outputs = self.forward(**batch, compute_distillation=compute_distillation)
+
+            if not train:
+                loss = outputs["loss"]
+                self.backward(loss)
+                self.optimizer_step()
+                return loss.detach()
 
             teacher_mlm_loss = outputs["teacher_mlm_loss"]
             student_mlm_loss = outputs["student_mlm_loss"]
