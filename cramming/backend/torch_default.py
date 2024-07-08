@@ -126,17 +126,54 @@ class DistillTorchEngineMinimal(torch.nn.Module):
         self.initial_time = time.time() - already_elapsed_time
         self.optimizer, self.scheduler = _load_optimizer(model, cfg_train, cfg_impl, self.initial_time)
 
+    # def step(self, batch: dict[str, torch.Tensor]):
+    #     self.accumulated_samples += self.effective_mbs
+    #     context = self.model.no_sync if self.accumulated_samples < self.current_batch_size else nullcontext
+
+    #     with context():
+    #         compute_distillation = self.cfg_impl.dist_start < self.steps <= self.cfg_impl.dist_end
+    #         outputs = self.forward(**batch, compute_distillation=compute_distillation)
+
+    #         teacher_mlm_loss = outputs["teacher_mlm_loss"]
+    #         student_mlm_loss = outputs["student_mlm_loss"]
+    #         distillation_loss = outputs["distillation_loss"]
+
+    #         if compute_distillation:
+    #             distillation_loss = distillation_loss
+    #         else:
+    #             distillation_loss = torch.tensor(0.0, device=self.setup["device"])
+
+    #         total_loss = teacher_mlm_loss + distillation_loss
+    #         self.backward(total_loss)
+    #         self.optimizer_step()
+
+    #         self.last_teacher_mlm_loss = teacher_mlm_loss.item()
+    #         self.last_student_mlm_loss = student_mlm_loss.item()
+    #         self.last_distillation_loss = distillation_loss.item()
+    #         self.last_total_loss = total_loss.item()
+
+    #     return total_loss.detach(), teacher_mlm_loss.detach(), student_mlm_loss.detach(), distillation_loss.detach()
+    
     def step(self, batch: dict[str, torch.Tensor]):
         self.accumulated_samples += self.effective_mbs
         context = self.model.no_sync if self.accumulated_samples < self.current_batch_size else nullcontext
-
+        
         with context():
             compute_distillation = self.cfg_impl.dist_start < self.steps <= self.cfg_impl.dist_end
             outputs = self.forward(**batch, compute_distillation=compute_distillation)
-
-            teacher_mlm_loss = outputs["teacher_mlm_loss"]
-            student_mlm_loss = outputs["student_mlm_loss"]
-            distillation_loss = outputs["distillation_loss"]
+            
+            # Check if outputs is a tuple or a dictionary
+            if isinstance(outputs, tuple):
+                # Assuming the order of the tuple is: teacher_mlm_loss, logits, intermediate_logits, student_mlm_loss, distillation_loss
+                final_logits, _ = outputs
+                print(final_logits)
+                exit(0)
+            elif isinstance(outputs, dict):
+                teacher_mlm_loss = outputs["teacher_mlm_loss"]
+                student_mlm_loss = outputs["student_mlm_loss"]
+                distillation_loss = outputs["distillation_loss"]
+            else:
+                raise TypeError(f"Unexpected type for outputs: {type(outputs)}")
 
             if compute_distillation:
                 distillation_loss = distillation_loss
