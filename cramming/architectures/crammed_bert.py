@@ -51,7 +51,7 @@ def distill_construct_crammed_bert(cfg_arch, vocab_size, downstream_classes=None
         else:
             raise ValueError(f"Invalid layout {config.arch['objective_layout']} of training objective given.")
     else:
-        model = DistillScriptableLM(config)
+        model = DistillScriptableLMForSequenceClassification(config)
     return model
 
 class DistillScriptableLM(PreTrainedModel):
@@ -224,22 +224,6 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         }
     
 
-    def predict(self, input_ids, attention_mask: Optional[torch.Tensor] = None):
-        final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
-        
-        final_outputs = self.prediction_head(final_outputs)
-        final_logits = self.decoder(final_outputs)
-        
-        intermediate_logits = None
-        if intermediate_outputs is not None:
-            intermediate_outputs = self.prediction_head(intermediate_outputs)
-            intermediate_logits = self.decoder(intermediate_outputs)
-        
-        return {
-            "final_logits": final_logits,
-            "intermediate_logits": intermediate_logits,
-        }
-
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
         labels = labels.view(-1)
         mask_positions = labels != self.mlm_loss_fn.ignore_index
@@ -251,6 +235,63 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
 
         masked_lm_loss = self.mlm_loss_fn(outputs, labels)
         return masked_lm_loss
+
+class DistillScriptableLMForSequenceClassification(PreTrainedModel):
+    """Classification head and pooler."""
+
+    config_class = distillCrammedBertConfig
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.cfg = OmegaConf.create(config.arch)
+        self.num_labels = self.cfg.num_labels
+
+        self.encoder = DistillScriptableLM(config)
+        self.pooler = PoolingComponent(self.cfg.classification_head, self.cfg.hidden_size)
+        self.head = torch.nn.Linear(self.cfg.classification_head.head_dim, self.num_labels)
+
+        self.problem_type = None
+        self._init_weights()
+
+    def _init_weights(self, module=None):
+        modules = self.modules() if module is None else [module]
+        for module in modules:
+            _init_module(
+                module,
+                self.cfg.init.type,
+                self.cfg.init.std,
+                self.cfg.hidden_size,
+                self.cfg.num_transformer_layers,
+            )
+
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, **kwargs):
+        logits = self.head(self.pooler(self.encoder(input_ids, attention_mask)))
+
+        if labels is not None:
+            if self.problem_type is None:  # very much from huggingface
+                if self.num_labels == 1:
+                    self.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.problem_type = "single_label_classification"
+                else:
+                    self.problem_type = "multi_label_classification"
+
+            if self.problem_type == "regression":
+                loss_fct = torch.nn.MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.problem_type == "single_label_classification":
+                loss_fct = torch.nn.CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.problem_type == "multi_label_classification":
+                loss_fct = torch.nn.BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
+        else:
+            loss = logits.new_zeros((1,))
+
+        return dict(logits=logits, loss=loss)
 
 
 
