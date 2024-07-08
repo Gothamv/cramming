@@ -31,6 +31,7 @@ def main_downstream_process(cfg, setup):
         log.info(f"Finetuning task {task_name} with {task['num_classes']} classes for {cfg.eval.steps} steps.")
         # Prepare model for finetuning:
         model = cramming.construct_model(cfg_arch, tokenizer.vocab_size, downstream_classes=task["num_classes"])
+        print("model", model)
         model_engine, _, _, _ = cramming.load_backend(model, None, tokenizer, cfg.eval, cfg.impl, setup=setup)
         model_engine.load_checkpoint(cfg_arch, model_file)
 
