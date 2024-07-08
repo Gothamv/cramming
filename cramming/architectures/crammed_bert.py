@@ -265,7 +265,7 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
             )
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, **kwargs):
-        logits = self.head(self.pooler(self.encoder(input_ids, attention_mask)))
+        final_logits, intermediate_logits = self.head(self.pooler(self.encoder(input_ids, attention_mask)))
 
         if labels is not None:
             if self.problem_type is None:  # very much from huggingface
@@ -279,19 +279,19 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
             if self.problem_type == "regression":
                 loss_fct = torch.nn.MSELoss()
                 if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                    loss = loss_fct(final_logits.squeeze(), labels.squeeze())
                 else:
-                    loss = loss_fct(logits, labels)
+                    loss = loss_fct(final_logits, labels)
             elif self.problem_type == "single_label_classification":
                 loss_fct = torch.nn.CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                loss = loss_fct(final_logits.view(-1, self.num_labels), labels.view(-1))
             elif self.problem_type == "multi_label_classification":
                 loss_fct = torch.nn.BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
+                loss = loss_fct(final_logits, labels)
         else:
-            loss = logits.new_zeros((1,))
+            loss = final_logits.new_zeros((1,))
 
-        return dict(logits=logits, loss=loss)
+        return dict(logits=final_logits, loss=loss)
 
 
 
