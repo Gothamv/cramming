@@ -76,7 +76,7 @@ class DistillScriptableLM(PreTrainedModel):
         # Distillation point
         self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
 
-    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
         if attention_mask is not None:
             attention_mask = get_extended_attention_mask(attention_mask, input_ids.shape, self.use_causal_attention)
         hidden_states = self.embedding(input_ids)
