@@ -131,8 +131,9 @@ class DistillTorchEngineMinimal(torch.nn.Module):
         context = self.model.no_sync if self.accumulated_samples < self.current_batch_size else nullcontext
 
         with context():
-            compute_distillation = self.cfg_impl.dist_start < self.steps <= self.cfg_impl.dist_end 
+            compute_distillation = self.cfg_impl.dist_start < self.steps <= self.cfg_impl.dist_end
             outputs = self.forward(**batch, compute_distillation=compute_distillation)
+
             teacher_mlm_loss = outputs["teacher_mlm_loss"]
             student_mlm_loss = outputs["student_mlm_loss"]
             distillation_loss = outputs["distillation_loss"]
