@@ -265,7 +265,14 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
             )
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, **kwargs):
-        final_logits, intermediate_logits = self.head(self.pooler(self.encoder(input_ids, attention_mask)))
+        
+        encoder_output = self.encoder(input_ids, attention_mask)
+        if isinstance(encoder_output, tuple):
+            hidden_states = encoder_output[0]
+        else:
+            hidden_states = encoder_output
+
+        final_logits = self.head(self.pooler(hidden_states))
 
         if labels is not None:
             if self.problem_type is None:  # very much from huggingface
