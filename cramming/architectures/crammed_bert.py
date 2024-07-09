@@ -133,6 +133,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.alpha_ce = self.cfg.alpha_ce  # Weight for soft distillation loss
         self.alpha_mlm = self.cfg.alpha_mlm  # Weight for MLM loss
         self.alpha_cos = self.cfg.alpha_cos  # Weight for cosine embedding loss
+        self.temperature_squared = self.temperature ** 2
         self._init_weights()
 
     def _init_weights(self, module=None):
@@ -184,7 +185,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         # Soft distillation loss
         student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
         teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
-        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
+        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature_squared)
     
 
         # Cosine embedding loss
