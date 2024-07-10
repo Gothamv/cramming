@@ -22,6 +22,8 @@ def main_downstream_process(cfg, setup):
 
     tokenizer, cfg_arch, model_file = cramming.utils.find_pretrained_checkpoint(cfg)
     tasks = cramming.prepare_task_dataloaders(tokenizer, cfg.eval, cfg.impl)
+    if cfg.impl.student_output:
+            cfg_arch.student_output = cfg.impl.student_output
 
     metrics = dict()
     stats = defaultdict(list)
@@ -30,8 +32,6 @@ def main_downstream_process(cfg, setup):
         cfg.eval.steps = len(task["trainloader"]) * cfg.eval.epochs
         log.info(f"Finetuning task {task_name} with {task['num_classes']} classes for {cfg.eval.steps} steps.")
         # Prepare model for finetuning:
-        if cfg.impl.student_output:
-            cfg.arch.student_output = cfg.impl.student_output
         model = cramming.construct_model(cfg_arch, tokenizer.vocab_size, downstream_classes=task["num_classes"])
         model_engine, _, _, _ = cramming.load_backend(model, None, tokenizer, cfg.eval, cfg.impl, setup=setup)
         model_engine.load_checkpoint(cfg_arch, model_file)

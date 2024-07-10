@@ -122,12 +122,19 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.decoder = torch.nn.Linear(self.cfg.embedding.embedding_dim, self.cfg.embedding.vocab_size, bias=self.cfg.decoder_bias)
         self.decoder.weight = self.encoder.embedding.word_embedding.weight
 
-        self.mlm_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100)
+        self.mlm_loss_fn = torch.nn.CrossEntropyLoss() #index -100
         self.sparse_prediction = self.cfg.sparse_prediction
 
         # Distillation Loss
-        self.distillation_loss_fn = self.compute_distillbert_loss if self.cfg.distill_type == "cutoff" else self.compute_distillation_loss
-        self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean')
+
+        if self.cfg.distill_type == "cutoff":
+            self.distillation_loss_fn = self.compute_distillbert_loss
+        elif self.cfg.distill_type == "skpd":
+            self.distillation_loss_fn = self.compute_skpd_distillation_loss
+        else:
+            self.distillation_loss_fn = self.compute_distillation_loss
+
+        self.distillation_loss = torch.nn.KLDivLoss(reduction='batchmean') #To do: Replace this with CE
         self.cos_loss = torch.nn.CosineEmbeddingLoss(reduction='mean')
         self.temperature = self.cfg.temperature # Temperature
         self.alpha_ce = self.cfg.alpha_ce  # Weight for soft distillation loss
@@ -186,7 +193,6 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
         teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
         soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature_squared)
-    
 
         # Cosine embedding loss
         batch_size, seq_length, hidden_dim = student_hidden_states.size()
@@ -224,6 +230,39 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             "distillation_loss": distillation_loss,
         }
     
+    def compute_skpd_distillation_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
+        # Soft distillation loss
+        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
+        soft_loss = F.cross_entropy(
+            student_logits / self.temperature_squared,
+            teacher_probs,
+            reduction='batchmean'
+        ) * (self.temperature_squared)
+    
+        # SKPD loss
+        teacher_hidden_states = teacher_hidden_states.view(teacher_hidden_states.size(0), -1)
+        student_hidden_states = student_hidden_states.view(student_hidden_states.size(0), -1)
+
+        teacher_hidden_states = F.normalize(teacher_hidden_states, p=2, dim=-1)
+        student_hidden_states = F.normalize(student_hidden_states, p=2, dim=-1)
+
+        teacher_similarities = torch.mm(teacher_hidden_states, teacher_hidden_states.t())
+        student_similarities = torch.mm(student_hidden_states, student_hidden_states.t())
+
+        skpd_loss = F.mse_loss(teacher_similarities, student_similarities)
+
+        # Combine losses
+        distillation_loss = (
+            self.alpha_ce * soft_loss +
+            self.alpha_mlm * student_mlm_loss +
+            self.alpha_cos * skpd_loss
+        )
+        
+        return {
+            "distillation_loss": distillation_loss,
+        }
+
+    
     def freeze_layers(self, layers_to_freeze: int):
         for i, layer in enumerate(self.encoder.layers):
             if i < layers_to_freeze:
@@ -236,7 +275,6 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
                 for param in layer.parameters():
                     param.requires_grad = True
 
-    
 
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
         labels = labels.view(-1)
