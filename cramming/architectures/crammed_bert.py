@@ -76,7 +76,9 @@ class DistillScriptableLM(PreTrainedModel):
         # Distillation point
         self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
 
-    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
+    def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None,
+                 compute_distillation: bool = False, double_pass: bool = False):
+        
         if attention_mask is not None:
             attention_mask = get_extended_attention_mask(attention_mask, input_ids.shape, self.use_causal_attention)
         hidden_states = self.embedding(input_ids)
@@ -86,18 +88,27 @@ class DistillScriptableLM(PreTrainedModel):
 
         intermediate_output = None
 
-        # Capture intermediate outputs
-        for i, layer_module in enumerate(self.layers):
-            hidden_states = layer_module(hidden_states, attention_mask)
-            if i + 1 == self.distill_point:
-                intermediate_output = hidden_states.clone()
+        def process_layers(hidden_states):
+            for i, layer_module in enumerate(self.layers):
+                hidden_states = layer_module(hidden_states, attention_mask)
+                if i + 1 == self.distill_point:
+                    nonlocal intermediate_output
+                    intermediate_output = hidden_states.clone()
+            return hidden_states
 
+       # First pass
+        hidden_states = process_layers(hidden_states)
+        
+        # Second pass if double_pass is True
+        if double_pass:
+            hidden_states = process_layers(hidden_states)
+        
         if self.seq_first:
             hidden_states = hidden_states.transpose(0, 1).contiguous()
             if intermediate_output is not None:
                 intermediate_output = intermediate_output.transpose(0, 1).contiguous()
-                intermediate_output = self.final_norm(intermediate_output)
         
+        intermediate_output = self.final_norm(intermediate_output)
         final_output = self.final_norm(hidden_states)
 
         return final_output, intermediate_output
@@ -155,6 +166,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             )
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
+        
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
         final_outputs = self.prediction_head(final_outputs)
@@ -236,7 +248,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         soft_loss = F.cross_entropy(
         student_logits / self.temperature_squared,
         teacher_logits / self.temperature_squared,
-        reduction='batchmean'
+        reduction='mean'
         )
     
         # SKPD loss
