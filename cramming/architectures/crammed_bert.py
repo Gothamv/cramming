@@ -246,6 +246,7 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
         super().__init__(config)
         self.cfg = OmegaConf.create(config.arch)
         self.num_labels = self.cfg.num_labels
+        self.student_output = self.cfg.student_output
 
         self.encoder = DistillScriptableLM(config)
         self.pooler = PoolingComponent(self.cfg.classification_head, self.cfg.hidden_size)
@@ -269,7 +270,10 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
         
         encoder_output = self.encoder(input_ids, attention_mask)
         if isinstance(encoder_output, tuple):
-            hidden_states = encoder_output[0]
+            if self.student_output:
+                hidden_states = encoder_output[-1] # student output
+            else:
+                hidden_states = encoder_output[0] # teacher output
         else:
             hidden_states = encoder_output
 
@@ -300,7 +304,6 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
             loss = final_logits.new_zeros((1,))
 
         return dict(logits=final_logits, loss=loss)
-
 
 
 ############################################################################################
