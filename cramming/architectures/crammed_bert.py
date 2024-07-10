@@ -231,13 +231,13 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         }
     
     def compute_skpd_distillation_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
+        
         # Soft distillation loss
-        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
         soft_loss = F.cross_entropy(
-            student_logits / self.temperature_squared,
-            teacher_probs,
-            reduction='batchmean'
-        ) * (self.temperature_squared)
+        student_logits / self.temperature_squared,
+        teacher_logits / self.temperature_squared,
+        reduction='batchmean'
+        )
     
         # SKPD loss
         teacher_hidden_states = teacher_hidden_states.view(teacher_hidden_states.size(0), -1)
