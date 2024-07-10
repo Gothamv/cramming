@@ -2,7 +2,6 @@
 # Settings are separated into hyperparameters for architecture, data, implementation and train/eval hyperparams
 defaults:
   - impl: distill-torch
-  - arch: distill-crammed-bert
   - wandb: default
   - eval: GLUE_sane
   - _self_

@@ -62,6 +62,7 @@ classification_head:
   head_dim: 1024
   nonlin: Tanh
   classifier_dropout: ${arch.hidden_dropout_prob}
+student_output: False
 
 # Distillation settings:
 temperature: 2.0
@@ -70,4 +71,3 @@ alpha_ce: 5.0 # Weight for soft distillation loss
 alpha_mlm: 1.0 # Weight for MLM loss
 alpha_cos: 2.0 # Weight for cosine embedding loss (for distillbert loss func)
 distill_type: cutoff # cutoff for distillbert loss func and default for standard distillation function
-student_output: False

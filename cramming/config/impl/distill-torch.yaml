@@ -53,3 +53,5 @@ enable_flash_sdp: True
 # Distillation start and end (in steps)
 dist_start: 0
 dist_end: 150000
+# Downstream settings
+student_output: False
