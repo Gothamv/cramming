@@ -224,6 +224,19 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             "distillation_loss": distillation_loss,
         }
     
+    def freeze_layers(self, layers_to_freeze: int):
+        for i, layer in enumerate(self.encoder.layers):
+            if i < layers_to_freeze:
+                for param in layer.parameters():
+                    param.requires_grad = False
+    
+    def unfreeze_layers(self, layers_to_unfreeze: int):
+        for i, layer in enumerate(self.encoder.layers):
+            if i < layers_to_unfreeze:
+                for param in layer.parameters():
+                    param.requires_grad = True
+
+    
 
     def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
         labels = labels.view(-1)
