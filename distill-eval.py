@@ -23,7 +23,7 @@ def main_downstream_process(cfg, setup):
     tokenizer, cfg_arch, model_file = cramming.utils.find_pretrained_checkpoint(cfg)
     tasks = cramming.prepare_task_dataloaders(tokenizer, cfg.eval, cfg.impl)
     if cfg.impl.student_output:
-            cfg_arch.student_output = True # if True will use student predictions for evaluation
+            cfg_arch.student_output = True
     else:
         cfg_arch.student_output = False
 
@@ -36,7 +36,7 @@ def main_downstream_process(cfg, setup):
         # Prepare model for finetuning:
         model = cramming.construct_model(cfg_arch, tokenizer.vocab_size, downstream_classes=task["num_classes"])
         model_engine, _, _, _ = cramming.load_backend(model, None, tokenizer, cfg.eval, cfg.impl, setup=setup)
-        model_engine.load_checkpoint(cfg_arch, model_file)
+        model_engine.load_checkpoint(cfg_arch, model_file, load_full_model=cfg.impl.load_full_model)
 
         try:
             assert task_name != "record"

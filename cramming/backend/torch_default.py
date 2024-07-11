@@ -263,13 +263,18 @@ class DistillTorchEngineMinimal(torch.nn.Module):
         state_dict = {k: v.clone().contiguous() for k, v in state_dict.items()}
         return state_dict
 
-    def load_checkpoint(self, cfg_arch, file, skip_optim_state=True):
+    def load_checkpoint(self, cfg_arch, file, skip_optim_state=True, load_full_model=True):
+        
         """Load list of states from checkpoint file. Not generally compatible with any other engine?"""
         if file.startswith("hf://"):
             if file.endswith("-untrained"):
                 log.info("Loading NO pretrained model as a sanity check ...")
             else:
-                self.model = self.model.from_pretrained(file.split("hf://")[1], config=cfg_arch).to(**self.setup)
+                self.model = self.model.from_pretrained(
+                    file.split("hf://")[1], 
+                    config=cfg_arch,
+                    load_full_model=load_full_model
+                ).to(**self.setup)
                 # reinit optimizer:
                 self.optimizer, self.scheduler = _load_optimizer(self.model, self.cfg_train, self.cfg_impl, self.initial_time)
         else:
@@ -278,6 +283,7 @@ class DistillTorchEngineMinimal(torch.nn.Module):
             if "encoder.embedding.word_embedding.weight" not in model_state:
                 # Hack to save space when saving the model, more clever though would be save the right one in the first place
                 model_state["encoder.embedding.word_embedding.weight"] = model_state["decoder.weight"]
+            
             try:
                 sanitized_state = {}
                 for k, v in model_state.items():
@@ -287,11 +293,22 @@ class DistillTorchEngineMinimal(torch.nn.Module):
                         k = f"_orig_mod.{k}"
                     if torch.distributed.is_initialized():
                         k = f"module.{k}"
+                    
+                    # Only include layers up to distillation point if not loading full model
+                    if not load_full_model:
+                        distill_point = self.model.encoder.distill_point
+                        if k.startswith(f'encoder.layers.'):
+                            layer_num = int(k.split('.')[2])
+                            if layer_num >= distill_point:
+                                continue
+                    
                     sanitized_state[k] = v
-                self.model.load_state_dict(sanitized_state, strict=True)
+                
+                self.model.load_state_dict(sanitized_state, strict=False)
             except RuntimeError as e:
                 log.info(f"State dict difference is {str(e).split('Error(s) in loading state_dict for')[1]}... Ok?")
                 self.model.load_state_dict(sanitized_state, strict=False)
+            
             self.model.to(**self.setup)
 
     def save_training_checkpoint(self, identifier="intermediate.pth", directory="", metadata=None):

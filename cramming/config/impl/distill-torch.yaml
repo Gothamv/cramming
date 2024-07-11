@@ -56,3 +56,4 @@ dist_start: 0
 dist_end: 150000
 # Downstream settings
 student_output: False
+load_full_model: True
