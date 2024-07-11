@@ -116,7 +116,7 @@ class DistillScriptableLM(PreTrainedModel):
     
     def get_student_model(self):
         student_cfg = copy.deepcopy(self.config)
-        student_cfg.arch.num_transformer_layers = self.distill_point
+        student_cfg.arch['num_transformer_layers'] = self.distill_point
         student_model = DistillScriptableLM(student_cfg)
         student_model.embedding = self.embedding
         student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
