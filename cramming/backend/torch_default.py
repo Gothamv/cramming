@@ -303,8 +303,9 @@ class DistillTorchEngineMinimal(torch.nn.Module):
                                 continue
                     
                     sanitized_state[k] = v
-                
+                curr_model = "Teacher" if load_full_model == True else "Student"
                 self.model.load_state_dict(sanitized_state, strict=False)
+                log.info(f"Number of parameters in {curr_model} model: {sum([p.numel() for p in self.model.parameters()])}")
             except RuntimeError as e:
                 log.info(f"State dict difference is {str(e).split('Error(s) in loading state_dict for')[1]}... Ok?")
                 self.model.load_state_dict(sanitized_state, strict=False)
