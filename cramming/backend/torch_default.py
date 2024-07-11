@@ -264,7 +264,6 @@ class DistillTorchEngineMinimal(torch.nn.Module):
         return state_dict
 
     def load_checkpoint(self, cfg_arch, file, skip_optim_state=True, load_full_model=True):
-        
         """Load list of states from checkpoint file. Not generally compatible with any other engine?"""
         if file.startswith("hf://"):
             if file.endswith("-untrained"):
@@ -284,33 +283,20 @@ class DistillTorchEngineMinimal(torch.nn.Module):
                 # Hack to save space when saving the model, more clever though would be save the right one in the first place
                 model_state["encoder.embedding.word_embedding.weight"] = model_state["decoder.weight"]
             
+            if load_full_model == False:
+                # Get the student model
+                student_encoder = self.model.encoder.get_student_model()
+                self.model.encoder = student_encoder
+            
             try:
-                sanitized_state = {}
-                for k, v in model_state.items():
-                    if k.startswith("module."):
-                        k = k[7:]
-                    if self.cfg_impl.compile_torch:
-                        k = f"_orig_mod.{k}"
-                    if torch.distributed.is_initialized():
-                        k = f"module.{k}"
-                    
-                    # Only include layers up to distillation point if not loading full model
-                    if not load_full_model:
-                        distill_point = self.model.encoder.distill_point
-                        if k.startswith(f'encoder.layers.'):
-                            layer_num = int(k.split('.')[2])
-                            if layer_num >= distill_point:
-                                continue
-                    
-                    sanitized_state[k] = v
-                curr_model = "Teacher" if load_full_model == True else "Student"
-                self.model.load_state_dict(sanitized_state, strict=False)
-                log.info(f"Number of parameters in {curr_model} model: {sum([p.numel() for p in self.model.parameters()])}")
+                self.model.load_state_dict(model_state, strict=False)
             except RuntimeError as e:
                 log.info(f"State dict difference is {str(e).split('Error(s) in loading state_dict for')[1]}... Ok?")
-                self.model.load_state_dict(sanitized_state, strict=False)
             
             self.model.to(**self.setup)
+            
+        curr_model = "Teacher" if load_full_model else "Student"
+        log.info(f"Number of parameters in {curr_model} model: {sum([p.numel() for p in self.model.parameters()])}")
 
     def save_training_checkpoint(self, identifier="intermediate.pth", directory="", metadata=None):
         """Path, identifier and additional client state. This checkpoint can be used to resume training.
