@@ -6,6 +6,7 @@ Not all ablations discussed in the paper are implemented as switches in this ver
 for all those, check scriptable_bert.py on the old branch.
 
 """
+import copy
 import torch
 import torch.nn.functional as F
 from transformers import PretrainedConfig, PreTrainedModel
@@ -112,6 +113,15 @@ class DistillScriptableLM(PreTrainedModel):
         final_output = self.final_norm(hidden_states)
 
         return final_output, intermediate_output
+    
+    def get_student_model(self):
+        student_config = copy.deepcopy(self.cfg)
+        student_config.num_transformer_layers = self.distill_point
+        student_model = DistillScriptableLM(student_config)
+        student_model.embedding = self.embedding
+        student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
+        student_model.final_norm = self.final_norm
+        return student_model
 
 
 class DistillScriptableLMForPreTraining(PreTrainedModel):
@@ -367,6 +377,27 @@ class DistillScriptableLMForSequenceClassification(PreTrainedModel):
             loss = final_logits.new_zeros((1,))
 
         return dict(logits=final_logits, loss=loss)
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
+        load_full_model = kwargs.get('load_full_model', False)
+        config = kwargs.get('config', None)
+        
+        if config is None:
+            config = cls.config_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        
+        model = cls(config)
+        
+        # Load the state dict
+        state_dict = torch.load(pretrained_model_name_or_path)
+        
+        if load_full_model == False:
+            # Get the student model
+            student_encoder = model.encoder.get_student_model()
+            model.encoder = student_encoder
+        
+        model.load_state_dict(state_dict, strict=False)
+        return model
 
 
 ############################################################################################
