@@ -530,6 +530,15 @@ class ScriptableLM(PreTrainedModel):
             hidden_states = hidden_states.transpose(0, 1).contiguous()
 
         return self.final_norm(hidden_states)
+    
+    def get_student_model(self):
+        student_cfg = copy.deepcopy(self.config)
+        student_cfg.arch['num_transformer_layers'] = self.distill_point
+        student_model = ScriptableLM(student_cfg)
+        student_model.embedding = self.embedding
+        student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
+        student_model.final_norm = self.final_norm
+        return student_model
 
 
 class ScriptableLMForPreTraining(PreTrainedModel):
@@ -606,15 +615,6 @@ class ScriptableLMForPreTraining(PreTrainedModel):
         outputs = self.decoder(self.prediction_head(outputs))
         masked_lm_loss = self.loss_fn(outputs, labels)
         return masked_lm_loss
-    
-    def get_student_model(self):
-        student_cfg = copy.deepcopy(self.config)
-        student_cfg.arch['num_transformer_layers'] = self.distill_point
-        student_model = ScriptableLM(student_cfg)
-        student_model.embedding = self.embedding
-        student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
-        student_model.final_norm = self.final_norm
-        return student_model
 
 
 class ScriptableLMForSequenceClassification(PreTrainedModel):
