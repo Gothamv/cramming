@@ -514,6 +514,8 @@ class ScriptableLM(PreTrainedModel):
             self.final_norm = _get_norm_fn(self.cfg.norm)(self.cfg.hidden_size, eps=self.cfg.norm_eps)
         else:
             self.final_norm = torch.nn.Identity()
+        
+        self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
         if attention_mask is not None:

@@ -62,3 +62,5 @@ classification_head:
   head_dim: 1024
   nonlin: Tanh
   classifier_dropout: ${arch.hidden_dropout_prob}
+
+student_layer_size: 2
