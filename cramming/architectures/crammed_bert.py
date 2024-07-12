@@ -515,7 +515,7 @@ class ScriptableLM(PreTrainedModel):
         else:
             self.final_norm = torch.nn.Identity()
         
-        self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
+        #self.distill_point = self.cfg.num_transformer_layers // self.cfg.student_layer_size
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None):
         if attention_mask is not None:
@@ -535,10 +535,11 @@ class ScriptableLM(PreTrainedModel):
     
     def get_student_model(self):
         student_cfg = copy.deepcopy(self.config)
-        student_cfg.arch['num_transformer_layers'] = self.distill_point
+        num_transformer_layers = self.cfg['num_transformer_layers'] // 2
+        student_cfg.arch['num_transformer_layers'] = num_transformer_layers
         student_model = ScriptableLM(student_cfg)
         student_model.embedding = self.embedding
-        student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
+        student_model.layers = torch.nn.ModuleList(self.layers[:num_transformer_layers])
         student_model.final_norm = self.final_norm
         return student_model
 
