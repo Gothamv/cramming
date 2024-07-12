@@ -606,6 +606,15 @@ class ScriptableLMForPreTraining(PreTrainedModel):
         outputs = self.decoder(self.prediction_head(outputs))
         masked_lm_loss = self.loss_fn(outputs, labels)
         return masked_lm_loss
+    
+    def get_student_model(self):
+        student_cfg = copy.deepcopy(self.config)
+        student_cfg.arch['num_transformer_layers'] = self.distill_point
+        student_model = ScriptableLM(student_cfg)
+        student_model.embedding = self.embedding
+        student_model.layers = torch.nn.ModuleList(self.layers[:self.distill_point])
+        student_model.final_norm = self.final_norm
+        return student_model
 
 
 class ScriptableLMForSequenceClassification(PreTrainedModel):
@@ -664,6 +673,27 @@ class ScriptableLMForSequenceClassification(PreTrainedModel):
             loss = logits.new_zeros((1,))
 
         return dict(logits=logits, loss=loss)
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
+        load_full_model = kwargs.get('load_full_model', False)
+        config = kwargs.get('config', None)
+        
+        if config is None:
+            config = cls.config_class.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        
+        model = cls(config)
+        
+        # Load the state dict
+        state_dict = torch.load(pretrained_model_name_or_path)
+        
+        if load_full_model == False:
+            # Get the student model
+            student_encoder = model.encoder.get_student_model()
+            model.encoder = student_encoder
+        
+        model.load_state_dict(state_dict, strict=False)
+        return model
 
 
 class ScriptableLMForSCRIPTTraining(PreTrainedModel):
