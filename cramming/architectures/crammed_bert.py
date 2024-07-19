@@ -93,12 +93,12 @@ class DistillScriptableLM(PreTrainedModel):
 
         intermediate_output = None
         distill_point = None
-        
-        def process_layers(hidden_states):
+
+        def process_layers(hidden_states, distill_point_arg):
             nonlocal intermediate_output
             for i, layer_module in enumerate(self.layers):
                 hidden_states = layer_module(hidden_states, attention_mask)
-                if i + 1 == distill_point:
+                if i + 1 == distill_point_arg:
                     intermediate_output = hidden_states.clone()
             return hidden_states
         
@@ -109,11 +109,11 @@ class DistillScriptableLM(PreTrainedModel):
             distill_point = self.distill_point # Fixed distillation point (default)
 
         # First pass
-        hidden_states = process_layers(hidden_states)
+        hidden_states = process_layers(hidden_states, distill_point)
         
         # Second pass if double_pass is True
         if double_pass:
-            hidden_states = process_layers(hidden_states)
+            hidden_states = process_layers(hidden_states, distill_point)
         
         if self.seq_first:
             hidden_states = hidden_states.transpose(0, 1).contiguous()
