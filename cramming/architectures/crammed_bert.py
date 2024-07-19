@@ -9,6 +9,8 @@ for all those, check scriptable_bert.py on the old branch.
 import copy
 import torch
 import random
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 import torch.nn.functional as F
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers import AutoConfig, AutoModel, AutoModelForMaskedLM, AutoModelForSequenceClassification, AutoModelForTokenClassification
@@ -94,27 +96,26 @@ class DistillScriptableLM(PreTrainedModel):
         intermediate_output = None
         distill_point = None
 
-        def process_layers(hidden_states, distill_mask):
+        def process_layers(hidden_states, distill_point):
             nonlocal intermediate_output
             for i, layer_module in enumerate(self.layers):
                 hidden_states = layer_module(hidden_states, attention_mask)
-                if distill_mask[i]:
+                if i == distill_point:
                     intermediate_output = hidden_states.clone()
             return hidden_states
         
         # Pick the distillation point
         if self.random_distill:
             distill_point = random.randint(1, self.num_teacher_layers) # Random distillation point to distill to from the teacher
-            distill_mask = torch.arange(1, self.num_teacher_layers + 1) == distill_point
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
 
         # First pass
-        hidden_states = process_layers(hidden_states, distill_mask)
+        hidden_states = process_layers(hidden_states, distill_point)
         
         # Second pass if double_pass is True
         if double_pass:
-            hidden_states = process_layers(hidden_states, distill_mask)
+            hidden_states = process_layers(hidden_states, distill_point)
         
         if self.seq_first:
             hidden_states = hidden_states.transpose(0, 1).contiguous()
