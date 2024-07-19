@@ -66,8 +66,10 @@ student_output: False
 
 # Distillation settings:
 temperature: 2.0
+random_distill: False
 student_layer_size: 2 # (num_transformer_layers // student_layer_size) is the number of layers in the student model
 alpha_ce: 5.0 # Weight for soft distillation loss
 alpha_mlm: 1.0 # Weight for MLM loss
 alpha_cos: 2.0 # Weight for cosine embedding loss (for distillbert loss func)
 distill_type: cutoff # cutoff for distillbert loss func and default for standard distillation function
+load_student_layers: 8 # Load the student model until this layer
