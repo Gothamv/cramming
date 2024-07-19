@@ -89,11 +89,12 @@ class DistillScriptableLM(PreTrainedModel):
             hidden_states = hidden_states.transpose(0, 1).contiguous()
 
         intermediate_output = None
+        distill_point = None
 
         def process_layers(hidden_states):
             for i, layer_module in enumerate(self.layers):
                 hidden_states = layer_module(hidden_states, attention_mask)
-                if i + 1 == self.distill_point:
+                if i + 1 == distill_point:
                     nonlocal intermediate_output
                     intermediate_output = hidden_states.clone()
             return hidden_states
@@ -101,7 +102,6 @@ class DistillScriptableLM(PreTrainedModel):
         # Pick the distillation point
         if self.random_distill:
             distill_point = torch.randint(0, self.cfg.num_transformer_layers, (1,)).item() # Random distillation point to distill to from the teacher
-            self.distill_point = distill_point
         else:
             distill_point = self.distill_point # Fixed distillation point (num_transformer_layers // student_layer_size)
 
