@@ -77,7 +77,7 @@ class DistillScriptableLM(PreTrainedModel):
         # Distillation point
         self.num_teacher_layers = self.cfg.num_transformer_layers
         self.student_layer_size = self.cfg.student_layer_size # divide the teacher layers by this number
-        self.distill_point = self.num_teacher_layers // self.student_layer_size
+        self.distill_point = torch.tensor(self.num_teacher_layers // self.student_layer_size)
         self.random_distill = self.cfg.random_distill
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None,
@@ -97,13 +97,13 @@ class DistillScriptableLM(PreTrainedModel):
             nonlocal intermediate_output
             for i, layer_module in enumerate(self.layers):
                 hidden_states = layer_module(hidden_states, attention_mask)
-                if i + 1 == distill_point:
+                if i + 1 == distill_point.item():
                     intermediate_output = hidden_states.clone()
             return hidden_states
         
         # Pick the distillation point
         if self.random_distill:
-            distill_point = torch.randint(1, self.num_teacher_layers, (1,)).item() # Random distillation point to distill to from the teacher
+            distill_point = torch.randint(1, self.num_teacher_layers, (1,)) # Random distillation point to distill to from the teacher
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
 
