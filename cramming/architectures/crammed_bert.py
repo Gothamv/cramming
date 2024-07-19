@@ -100,7 +100,7 @@ class DistillScriptableLM(PreTrainedModel):
             nonlocal intermediate_output
             for i, layer_module in enumerate(self.layers):
                 hidden_states = layer_module(hidden_states, attention_mask)
-                if i == distill_point:
+                if i + 1 == distill_point:
                     intermediate_output = hidden_states.clone()
             return hidden_states
         
