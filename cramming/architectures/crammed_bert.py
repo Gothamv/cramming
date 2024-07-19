@@ -8,6 +8,7 @@ for all those, check scriptable_bert.py on the old branch.
 """
 import copy
 import torch
+import random
 import torch.nn.functional as F
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers import AutoConfig, AutoModel, AutoModelForMaskedLM, AutoModelForSequenceClassification, AutoModelForTokenClassification
@@ -103,7 +104,7 @@ class DistillScriptableLM(PreTrainedModel):
         
         # Pick the distillation point
         if self.random_distill:
-            distill_point = torch.randint(1, self.num_teacher_layers, (1,)).item() # Random distillation point to distill to from the teacher
+            distill_point = random.randint(1, self.num_teacher_layers) # Random distillation point to distill to from the teacher
             distill_mask = torch.arange(1, self.num_teacher_layers + 1) == distill_point
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
