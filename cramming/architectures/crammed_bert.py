@@ -105,6 +105,7 @@ class DistillScriptableLM(PreTrainedModel):
         # Pick the distillation point
         if self.random_distill:
             distill_point = torch.randint(0, self.num_teacher_layers, (1,)).item() # Random distillation point to distill to from the teacher
+            print(f"Random distillation point selected: {distill_point}")
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
 
