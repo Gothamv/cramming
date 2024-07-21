@@ -22,10 +22,9 @@ def main_downstream_process(cfg, setup):
 
     tokenizer, cfg_arch, model_file = cramming.utils.find_pretrained_checkpoint(cfg)
     tasks = cramming.prepare_task_dataloaders(tokenizer, cfg.eval, cfg.impl)
-    if cfg.impl.student_output:
-            cfg_arch.student_output = True
-    else:
-        cfg_arch.student_output = False
+    
+    cfg_arch.student_output = True if cfg.impl.student_output else False
+    cfg_arch.load_student_layers = cfg.impl.load_student_layers
 
     metrics = dict()
     stats = defaultdict(list)

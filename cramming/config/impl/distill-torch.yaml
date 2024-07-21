@@ -57,3 +57,4 @@ dist_end: 150000
 # Downstream settings
 student_output: False
 load_full_model: True
+load_student_layers: 8
