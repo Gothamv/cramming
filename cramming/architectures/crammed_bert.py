@@ -194,7 +194,10 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         final_outputs = final_outputs.view(-1, final_outputs.shape[-1])
         intermediate_outputs = intermediate_outputs.view(-1, intermediate_outputs.shape[-1])
         
-        loss_dict = dict()
+        loss_dict = {}
+        final_logits = None
+        intermediate_logits = None
+
         if labels is not None:
             if self.sparse_prediction:
                 teacher_mlm_loss = self._forward_sparse(final_outputs, labels)
@@ -209,8 +212,10 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             loss_dict["student_mlm_loss"] = student_mlm_loss
             
             if compute_distillation:
-                final_logits = self.decoder(self.prediction_head(final_outputs)) if self.sparse_prediction else final_logits
-                intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs)) if self.sparse_prediction else intermediate_logits
+                if final_logits is None:
+                    final_logits = self.decoder(self.prediction_head(final_outputs))
+                if intermediate_logits is None:
+                    intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
                 distill_loss_dict = self.distillation_loss_fn(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs, student_mlm_loss)
                 loss_dict.update(distill_loss_dict)
         else:
@@ -221,8 +226,8 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
 
         return {
             "teacher_mlm_loss": loss_dict.get("teacher_mlm_loss", teacher_mlm_loss),
-            "logits": final_logits if 'final_logits' in locals() else None,
-            "intermediate_logits": intermediate_logits if 'intermediate_logits' in locals() else None,
+            "logits": final_logits,
+            "intermediate_logits": intermediate_logits,
             "student_mlm_loss": loss_dict.get("student_mlm_loss", student_mlm_loss),
             "distillation_loss": loss_dict.get("distillation_loss", torch.tensor(0.0, device=final_outputs.device)),
         }
