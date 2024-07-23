@@ -177,6 +177,17 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.temperature_squared = self.temperature ** 2
         self._init_weights()
 
+    def _init_weights(self, module=None):
+        modules = self.modules() if module is None else [module]
+        for module in modules:
+            _init_module(
+                module,
+                self.cfg.init.type,
+                self.cfg.init.std,
+                self.cfg.hidden_size,
+                self.cfg.num_transformer_layers,
+            )
+
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
@@ -313,20 +324,6 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             if i < layers_to_unfreeze:
                 for param in layer.parameters():
                     param.requires_grad = True
-
-
-    def _forward_sparse(self, outputs: torch.Tensor, labels: Optional[torch.Tensor] = None):
-        labels = labels.view(-1)
-        mask_positions = labels != self.mlm_loss_fn.ignore_index
-        num_masks_guaranteed = round(self.sparse_prediction * labels.shape[0])
-        indices = torch.argsort(mask_positions.int())[-num_masks_guaranteed:]
-
-        outputs = outputs.view(-1, outputs.size(-1))[indices]
-        labels = labels[indices]
-
-        masked_lm_loss = self.mlm_loss_fn(outputs, labels)
-        return masked_lm_loss
-
 class DistillScriptableLMForSequenceClassification(PreTrainedModel):
     """Classification head and pooler."""
 
