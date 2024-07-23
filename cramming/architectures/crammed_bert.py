@@ -191,59 +191,45 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, compute_distillation: bool = False):
         final_outputs, intermediate_outputs = self.encoder(input_ids, attention_mask)
         
-        final_outputs = final_outputs.view(-1, final_outputs.shape[-1])
-        intermediate_outputs = intermediate_outputs.view(-1, intermediate_outputs.shape[-1])
+        final_outputs = self.prediction_head(final_outputs)
+        final_logits = self.decoder(final_outputs)
+        intermediate_outputs = self.prediction_head(intermediate_outputs)
+        intermediate_logits = self.decoder(intermediate_outputs)
         
-        loss_dict = {}
-        final_logits = None
-        intermediate_logits = None
-
-        if labels is not None:
-            if self.sparse_prediction:
-                teacher_mlm_loss = self._forward_sparse(final_outputs, labels)
-                student_mlm_loss = self._forward_sparse(intermediate_outputs, labels)
-            else:
-                final_logits = self.decoder(self.prediction_head(final_outputs))
-                intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
-                teacher_mlm_loss = self.mlm_loss_fn(final_logits, labels.view(-1))
-                student_mlm_loss = self.mlm_loss_fn(intermediate_logits, labels.view(-1))
-            
+        loss_dict = dict()
+        if self.sparse_prediction and labels is not None:
+            teacher_mlm_loss = self._forward_sparse(final_logits, labels)
+            student_mlm_loss = self._forward_sparse(intermediate_logits, labels)
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
             loss_dict["student_mlm_loss"] = student_mlm_loss
-            
-            if compute_distillation:
-                if final_logits is None:
-                    final_logits = self.decoder(self.prediction_head(final_outputs))
-                if intermediate_logits is None:
-                    intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
-                distill_loss_dict = self.distillation_loss_fn(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs, student_mlm_loss)
-                loss_dict.update(distill_loss_dict)
-        else:
-            final_logits = self.decoder(self.prediction_head(final_outputs))
-            intermediate_logits = self.decoder(self.prediction_head(intermediate_outputs))
-            teacher_mlm_loss = final_logits.new_zeros((1,))
-            student_mlm_loss = intermediate_logits.new_zeros((1,))
-
+        elif labels is not None:
+            teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
+            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.view(-1, intermediate_logits.size(-1)), labels.view(-1))
+            loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
+            loss_dict["student_mlm_loss"] = student_mlm_loss
+        
+        if compute_distillation and intermediate_outputs is not None:
+            distill_loss_dict = self.distillation_loss_fn(final_logits, intermediate_logits, labels, final_outputs, intermediate_outputs, loss_dict.get("student_mlm_loss"))
+            loss_dict.update(distill_loss_dict)
+        
         return {
-            "teacher_mlm_loss": loss_dict.get("teacher_mlm_loss", teacher_mlm_loss),
+            "teacher_mlm_loss": loss_dict.get("teacher_mlm_loss", torch.tensor(0.0, device=final_logits.device)),
             "logits": final_logits,
             "intermediate_logits": intermediate_logits,
-            "student_mlm_loss": loss_dict.get("student_mlm_loss", student_mlm_loss),
-            "distillation_loss": loss_dict.get("distillation_loss", torch.tensor(0.0, device=final_outputs.device)),
+            "student_mlm_loss": loss_dict.get("student_mlm_loss", torch.tensor(0.0, device=final_logits.device)),
+            "distillation_loss": loss_dict.get("distillation_loss", torch.tensor(0.0, device=final_logits.device)),
         }
 
-    def _forward_sparse(self, outputs: torch.Tensor, labels: torch.Tensor):
+    def _forward_sparse(self, logits: torch.Tensor, labels: torch.Tensor):
         labels = labels.view(-1)
         mask_positions = labels != self.mlm_loss_fn.ignore_index
         num_masks_guaranteed = round(self.sparse_prediction * labels.shape[0])
         
         indices = torch.argsort(mask_positions.int())[-num_masks_guaranteed:]
-        outputs = outputs[indices]
-        labels = labels[indices]
+        sparse_logits = logits.view(-1, logits.size(-1))[indices]
+        sparse_labels = labels[indices]
         
-        outputs = self.decoder(self.prediction_head(outputs))
-        masked_lm_loss = self.mlm_loss_fn(outputs, labels)
-        return masked_lm_loss
+        return self.mlm_loss_fn(sparse_logits, sparse_labels)
 
     def compute_distillbert_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
 
