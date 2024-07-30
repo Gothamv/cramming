@@ -100,73 +100,29 @@ class DistillScriptableLM(PreTrainedModel):
         intermediate_output = None
         distill_point = None
 
-        # def process_layers(hidden_states, distill_point):
-        #     nonlocal intermediate_output
-        #     for i, layer_module in enumerate(self.layers):
-        #         hidden_states = layer_module(hidden_states, attention_mask)
-        #         if i + 1 == distill_point:
-        #             intermediate_output = hidden_states.clone()
-        #     return hidden_states
-        
-        # Pick the distillation point
-        # if self.random_distill:
-        #     if self.pre_generated_distill_points is None:
-        #         if self.random_distill_strategy == "every-third":
-        #             # Generate points for every third layer
-        #             self.pre_generated_distill_points = [random.choice(range(3, self.num_teacher_layers, 3)) for _ in range(2000000)]
-        #         elif self.random_distill_strategy == "four-layer":
-        #             # Generate points for four-layer strategy
-        #             self.pre_generated_distill_points = [random.choice(range(4, (self.num_teacher_layers // 2) + 1)) for _ in range(2000000)]
-        #         else:
-        #             raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
-        #     distill_point = self.pre_generated_distill_points[self.current_step]
-        #     self.current_step += 1
-        # else:
-        #     distill_point = self.distill_point # Fixed distillation point (default)
-
-        @torch.jit.ignore
         def process_layers(hidden_states, distill_point):
-            
-            def process_layer(i, hidden_states):
-                nonlocal intermediate_output
-                hidden_states = self.layers[i](hidden_states, attention_mask)
-                
-                def true_fn(hidden_states):
-                    nonlocal intermediate_output
+            nonlocal intermediate_output
+            for i, layer_module in enumerate(self.layers):
+                hidden_states = layer_module(hidden_states, attention_mask)
+                if i + 1 == distill_point:
                     intermediate_output = hidden_states.clone()
-                    return hidden_states
-
-                def false_fn(hidden_states):
-                    return hidden_states
-
-                return cond(i + 1 == distill_point, true_fn, false_fn, [hidden_states])
-
-            for i in range(len(self.layers)):
-                hidden_states = process_layer(i, hidden_states)
-
             return hidden_states
-
-        @torch.jit.ignore
-        def _get_distill_point(self):
-            if self.random_distill:
-                if self.pre_generated_distill_points is None:
-                    if self.random_distill_strategy == "every-third":
-                        # Generate points for every third layer
-                        choices = torch.arange(3, self.num_teacher_layers, 3)
-                        self.pre_generated_distill_points = choices[torch.randint(0, len(choices), (2000000,))]
-                    elif self.random_distill_strategy == "four-layer":
-                        # Generate points for four-layer strategy
-                        choices = torch.arange(4, (self.num_teacher_layers // 2) + 1)
-                        self.pre_generated_distill_points = choices[torch.randint(0, len(choices), (2000000,))]
-                    else:
-                        raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
-                distill_point = self.pre_generated_distill_points[self.current_step]
-                self.current_step += 1
-            else:
-                distill_point = self.distill_point # Fixed distillation point (default)
-            return distill_point
         
-        distill_point = _get_distill_point(self)
+        #Pick the distillation point
+        if self.random_distill:
+            if self.pre_generated_distill_points is None:
+                if self.random_distill_strategy == "every-third":
+                    # Generate points for every third layer
+                    self.pre_generated_distill_points = [random.choice(range(3, self.num_teacher_layers, 3)) for _ in range(2000000)]
+                elif self.random_distill_strategy == "four-layer":
+                    # Generate points for four-layer strategy
+                    self.pre_generated_distill_points = [random.choice(range(4, (self.num_teacher_layers // 2) + 1)) for _ in range(2000000)]
+                else:
+                    raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
+            distill_point = self.pre_generated_distill_points[self.current_step]
+            self.current_step += 1
+        else:
+            distill_point = self.distill_point # Fixed distillation point (default)
 
         # First pass
         hidden_states = process_layers(hidden_states, distill_point)
