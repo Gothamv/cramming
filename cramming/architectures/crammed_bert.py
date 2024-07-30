@@ -135,7 +135,7 @@ class DistillScriptableLM(PreTrainedModel):
                     self.pre_generated_distill_points = choices[torch.randint(0, len(choices), (2000000,))]
                 else:
                     raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
-            distill_point = self.pre_generated_distill_points[self.current_step].item()
+            distill_point = self.pre_generated_distill_points[self.current_step]
             self.current_step += 1
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
