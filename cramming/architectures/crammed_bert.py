@@ -108,17 +108,34 @@ class DistillScriptableLM(PreTrainedModel):
             return hidden_states
         
         # Pick the distillation point
+        # if self.random_distill:
+        #     if self.pre_generated_distill_points is None:
+        #         if self.random_distill_strategy == "every-third":
+        #             # Generate points for every third layer
+        #             self.pre_generated_distill_points = [random.choice(range(3, self.num_teacher_layers, 3)) for _ in range(2000000)]
+        #         elif self.random_distill_strategy == "four-layer":
+        #             # Generate points for four-layer strategy
+        #             self.pre_generated_distill_points = [random.choice(range(4, (self.num_teacher_layers // 2) + 1)) for _ in range(2000000)]
+        #         else:
+        #             raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
+        #     distill_point = self.pre_generated_distill_points[self.current_step]
+        #     self.current_step += 1
+        # else:
+        #     distill_point = self.distill_point # Fixed distillation point (default)
+
         if self.random_distill:
             if self.pre_generated_distill_points is None:
                 if self.random_distill_strategy == "every-third":
                     # Generate points for every third layer
-                    self.pre_generated_distill_points = [random.choice(range(3, self.num_teacher_layers, 3)) for _ in range(2000000)]
+                    choices = torch.arange(3, self.num_teacher_layers, 3)
+                    self.pre_generated_distill_points = choices[torch.randint(0, len(choices), (2000000,))]
                 elif self.random_distill_strategy == "four-layer":
                     # Generate points for four-layer strategy
-                    self.pre_generated_distill_points = [random.choice(range(4, (self.num_teacher_layers // 2) + 1)) for _ in range(2000000)]
+                    choices = torch.arange(4, (self.num_teacher_layers // 2) + 1)
+                    self.pre_generated_distill_points = choices[torch.randint(0, len(choices), (2000000,))]
                 else:
                     raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
-            distill_point = self.pre_generated_distill_points[self.current_step]
+            distill_point = self.pre_generated_distill_points[self.current_step].item()
             self.current_step += 1
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
