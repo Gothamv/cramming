@@ -82,6 +82,9 @@ class DistillScriptableLM(PreTrainedModel):
         self.student_layer_size = self.cfg.student_layer_size # divide the teacher layers by this number
         self.distill_point = self.num_teacher_layers // self.student_layer_size
         self.random_distill = self.cfg.random_distill
+        self.random_distill_strategy = self.cfg.random_distill_strategy # every-third(random distill between every third layer and teacher), four-layer (random distill between 4 layers below the student(inclusive))
+        self.pre_generated_distill_points = None
+        self.current_step = 0
 
     def forward(self, input_ids, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None,
                  compute_distillation: bool = False, double_pass: bool = False):
@@ -106,7 +109,17 @@ class DistillScriptableLM(PreTrainedModel):
         
         # Pick the distillation point
         if self.random_distill:
-            distill_point = random.randint(1, self.num_teacher_layers) # Random distillation point to distill to from the teacher
+            if self.pre_generated_distill_points is None:
+                if self.random_distill_strategy == "every-third":
+                    # Generate points for every third layer
+                    self.pre_generated_distill_points = [random.choice(range(3, self.num_teacher_layers, 3)) for _ in range(2000000)]
+                elif self.random_distill_strategy == "four-layer":
+                    # Generate points for four-layer strategy
+                    self.pre_generated_distill_points = [random.choice(range(4, (self.num_teacher_layers // 2) + 1)) for _ in range(2000000)]
+                else:
+                    raise ValueError(f"Invalid random distillation strategy {self.random_distill_strategy} given.")
+            distill_point = self.pre_generated_distill_points[self.current_step]
+            self.current_step += 1
         else:
             distill_point = self.distill_point # Fixed distillation point (default)
 
@@ -156,7 +169,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.decoder = torch.nn.Linear(self.cfg.embedding.embedding_dim, self.cfg.embedding.vocab_size, bias=self.cfg.decoder_bias)
         self.decoder.weight = self.encoder.embedding.word_embedding.weight
 
-        self.mlm_loss_fn = torch.nn.CrossEntropyLoss() #ignore index -100?
+        self.mlm_loss_fn = torch.nn.CrossEntropyLoss()
         self.sparse_prediction = self.cfg.sparse_prediction
 
         # Distillation Loss
@@ -204,7 +217,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             loss_dict["student_mlm_loss"] = student_mlm_loss
         elif labels is not None:
             teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
-            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.view(-1, intermediate_logits.size(-1)), labels.view(-1))
+            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.vuiew(-1, intermediate_logits.size(-1)), labels.view(-1))
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
             loss_dict["student_mlm_loss"] = student_mlm_loss
         
