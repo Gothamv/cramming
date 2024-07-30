@@ -11,6 +11,7 @@ import torch
 import random
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True
+from functorch.experimental.control_flow import cond
 import torch.nn.functional as F
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers import AutoConfig, AutoModel, AutoModelForMaskedLM, AutoModelForSequenceClassification, AutoModelForTokenClassification
@@ -99,13 +100,13 @@ class DistillScriptableLM(PreTrainedModel):
         intermediate_output = None
         distill_point = None
 
-        def process_layers(hidden_states, distill_point):
-            nonlocal intermediate_output
-            for i, layer_module in enumerate(self.layers):
-                hidden_states = layer_module(hidden_states, attention_mask)
-                if i + 1 == distill_point:
-                    intermediate_output = hidden_states.clone()
-            return hidden_states
+        # def process_layers(hidden_states, distill_point):
+        #     nonlocal intermediate_output
+        #     for i, layer_module in enumerate(self.layers):
+        #         hidden_states = layer_module(hidden_states, attention_mask)
+        #         if i + 1 == distill_point:
+        #             intermediate_output = hidden_states.clone()
+        #     return hidden_states
         
         # Pick the distillation point
         # if self.random_distill:
@@ -122,6 +123,27 @@ class DistillScriptableLM(PreTrainedModel):
         #     self.current_step += 1
         # else:
         #     distill_point = self.distill_point # Fixed distillation point (default)
+
+        def process_layers(hidden_states, distill_point):
+            
+            def process_layer(i, hidden_states):
+                nonlocal intermediate_output
+                hidden_states = self.layers[i](hidden_states, attention_mask)
+                
+                def true_fn(hidden_states):
+                    nonlocal intermediate_output
+                    intermediate_output = hidden_states.clone()
+                    return hidden_states
+
+                def false_fn(hidden_states):
+                    return hidden_states
+
+                return cond(i + 1 == distill_point, true_fn, false_fn, [hidden_states])
+
+            for i in range(len(self.layers)):
+                hidden_states = process_layer(i, hidden_states)
+
+            return hidden_states
 
         if self.random_distill:
             if self.pre_generated_distill_points is None:
