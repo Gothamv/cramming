@@ -2,7 +2,7 @@
 
 import torch
 import hydra
-
+import os
 
 import time
 import datetime
@@ -87,7 +87,9 @@ def main_downstream_process(cfg, setup):
                 break
 
         # Quantize the model after finetuning
-        quantized_model = quantize_model(model_engine.model)
+        log.info(get_size_of_model(model_engine.model))
+        quantized_model = quantize_model(model_engine.model)  
+        log.info(get_size_of_model(quantized_model))
         
         # Use the quantized model for evaluation
         metrics[task_name + "_quantized"] = validate_quantized(quantized_model, task["validloader"], metric, setup, cfg)
@@ -131,6 +133,12 @@ def quantize_model(model):
         model, {torch.nn.Linear}, dtype=torch.qint8
     )
     return quantized_model
+
+def get_size_of_model(model):
+    torch.save(model.state_dict(), "temp.p")
+    print('Size (MB):', os.path.getsize("temp.p")/1e6)
+    os.remove('temp.p')
+
 
 @torch.no_grad()
 def validate_quantized(quantized_model, validloader, metric, setup, cfg):

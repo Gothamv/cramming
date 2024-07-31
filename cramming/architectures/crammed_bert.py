@@ -173,9 +173,9 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.mlm_loss_fn = torch.nn.CrossEntropyLoss()
         self.sparse_prediction = self.cfg.sparse_prediction
 
-        # Distillation Loss
+        # Distillation Loss settings
 
-        if self.cfg.distill_type == "cutoff":
+        if self.cfg.distill_type == "db":
             self.distillation_loss_fn = self.compute_distillbert_loss
         elif self.cfg.distill_type == "skpd":
             self.distillation_loss_fn = self.compute_skpd_distillation_loss
@@ -189,6 +189,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         self.alpha_mlm = self.cfg.alpha_mlm  # Weight for MLM loss
         self.alpha_cos = self.cfg.alpha_cos  # Weight for cosine embedding loss
         self.temperature_squared = self.temperature ** 2
+        self.temp_strategy = self.cfg.temp_strategy # Temperature strategy for soft loss calculation (KD, TTM, WTTM)
         self._init_weights()
 
     def _init_weights(self, module=None):
@@ -218,7 +219,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             loss_dict["student_mlm_loss"] = student_mlm_loss
         elif labels is not None:
             teacher_mlm_loss = self.mlm_loss_fn(final_logits.view(-1, final_logits.size(-1)), labels.view(-1))
-            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.vuiew(-1, intermediate_logits.size(-1)), labels.view(-1))
+            student_mlm_loss = self.mlm_loss_fn(intermediate_logits.view(-1, intermediate_logits.size(-1)), labels.view(-1))
             loss_dict["teacher_mlm_loss"] = teacher_mlm_loss
             loss_dict["student_mlm_loss"] = student_mlm_loss
         
@@ -244,13 +245,41 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
         sparse_labels = labels[indices]
         
         return self.mlm_loss_fn(sparse_logits, sparse_labels)
+    
+    def compute_soft_loss(self, teacher_logits, student_logits, temp_strategy='KD'):
+        
+        if temp_strategy == 'KD':
+            student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
+            teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
+            soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature_squared)
+        
+        elif temp_strategy == 'TTM':
+            # adapted from: https://github.com/zkxufo/TTM/blob/main/distiller_zoo/ttm.py
+            student_log_probs = F.log_softmax(student_logits, dim=1)
+            teacher_probs = torch.pow(F.softmax(teacher_logits, dim=1), 1 / self.temperature)
+            norm = torch.sum(teacher_probs, dim=1)
+            teacher_probs = teacher_probs / norm.unsqueeze(1)
+            KL = torch.sum(F.kl_div(student_log_probs, teacher_probs, reduction='none'), dim=1)
+            soft_loss = torch.mean(KL)
+        
+        elif temp_strategy == 'WTTM':
+            # adapted from: https://github.com/zkxufo/TTM/blob/main/distiller_zoo/wttm.py
+            student_log_probs = F.log_softmax(student_logits, dim=1)
+            teacher_probs = torch.pow(F.softmax(teacher_logits, dim=1), 1 / self.temperature)
+            norm = torch.sum(teacher_probs, dim=1)
+            teacher_probs = teacher_probs / norm.unsqueeze(1)
+            KL = torch.sum(F.kl_div(student_log_probs, teacher_probs, reduction='none'), dim=1)
+            soft_loss = torch.mean(norm * KL)
+        
+        else:
+            raise ValueError(f"Invalid temperature strategy {temp_strategy} given.")
+        
+        return soft_loss
 
     def compute_distillbert_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
 
         # Soft distillation loss
-        student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
-        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
-        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature_squared)
+        soft_loss = self.compute_soft_loss(teacher_logits, student_logits, temp_strategy=self.temp_strategy)
 
         # Cosine embedding loss
         batch_size, seq_length, hidden_dim = student_hidden_states.size()
@@ -273,10 +302,9 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
     
     def compute_distillation_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
 
+        # This loss function does not use the cosine embedding similarity loss. This is the only difference between this and the distillbert loss function.
         # Soft distillation loss
-        student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
-        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
-        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature ** 2)
+        soft_loss = self.compute_soft_loss(teacher_logits, student_logits, temp_strategy=self.temp_strategy)
     
         # Combine losses
         distillation_loss = (
@@ -291,9 +319,7 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
     def compute_skpd_distillation_loss(self, teacher_logits, student_logits, labels, teacher_hidden_states, student_hidden_states, student_mlm_loss):
         
         # Soft distillation loss
-        student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
-        teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
-        soft_loss = F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (self.temperature_squared)
+        soft_loss = self.compute_soft_loss(teacher_logits, student_logits, temp_strategy=self.temp_strategy)
     
         # SKPD loss
         teacher_hidden_states = teacher_hidden_states.view(teacher_hidden_states.size(0), -1)
@@ -329,6 +355,8 @@ class DistillScriptableLMForPreTraining(PreTrainedModel):
             if i < layers_to_unfreeze:
                 for param in layer.parameters():
                     param.requires_grad = True
+
+
 class DistillScriptableLMForSequenceClassification(PreTrainedModel):
     """Classification head and pooler."""
 
